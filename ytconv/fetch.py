@@ -96,7 +96,7 @@ def fetch_captions(url, outdir):
         "--write-info-json",
         "--no-playlist",
         "-o", str(outdir / "v"),
-        url,
+        "--", url,   # "--": what follows is a link, never an option
     ])
     # en-orig is the original track; en may be a translation. Prefer the original.
     vtt = None
@@ -160,7 +160,7 @@ def fetch_video(url, outdir, clients=None):
             "--no-playlist",
             "--newline",
             "-o", str(attempt),
-            url,
+            "--", url,   # "--": what follows is a link, never an option
         ], tee=True)
 
         # Note: yt-dlp prints a "missing PO Token" WARNING and then downloads
@@ -234,7 +234,7 @@ def _probe_short_side(client, url):
         "--simulate",
         "--no-playlist",
         "--print", "%(width)sx%(height)s",
-        url,
+        "--", url,   # "--": what follows is a link, never an option
     ])
     sizes = re.findall(r"^(\d+)x(\d+)$", out, re.MULTILINE)
     if code != 0 or not sizes:

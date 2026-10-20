@@ -2,6 +2,7 @@
 
 import argparse
 import json
+import re
 import shutil
 import sys
 import tempfile
@@ -42,6 +43,11 @@ def build_parser():
 
 def main(argv=None):
     args = build_parser().parse_args(argv)
+    if args.source.startswith("-"):
+        # yt-dlp would read it as one of its own options (--exec runs commands).
+        print("The source must be a URL or a file path, not something starting "
+              "with '-'.", file=sys.stderr)
+        return 2
     local = Path(args.source)
     is_local = local.exists() and local.is_file()
 
@@ -148,12 +154,17 @@ def main(argv=None):
 
 
 def _slug(source, is_local):
+    """Folder name for the output. Only letters, digits, '-' and '_' survive, so
+    a crafted URL such as youtu.be/../../x cannot write outside ./output."""
     if is_local:
-        return Path(source).stem
-    for key in ("v=", "youtu.be/", "/shorts/"):
-        if key in source:
-            return source.split(key)[1][:11]
-    return "video"
+        raw = Path(source).stem
+    else:
+        raw = "video"
+        for key in ("v=", "youtu.be/", "/shorts/"):
+            if key in source:
+                raw = source.split(key)[1][:11]
+                break
+    return re.sub(r"[^A-Za-z0-9_-]", "", raw) or "video"
 
 
 def _hms(seconds):
