@@ -3,6 +3,10 @@
 Turns a YouTube URL into a readable transcript and a folder of frames that are
 almost all worth looking at.
 
+<a href="https://www.youtube.com/shorts/72ZZiSuqWXU"><img src="https://img.youtube.com/vi/72ZZiSuqWXU/maxresdefault.jpg" alt="Watch the 30-second demo on YouTube" width="480"></a>
+
+**[▶ Watch the 30-second demo](https://www.youtube.com/shorts/72ZZiSuqWXU)**
+
 ## Requirements
 
 The three tools it needs are free. On a Mac, install them with
