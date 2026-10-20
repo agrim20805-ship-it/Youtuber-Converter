@@ -12,6 +12,12 @@ fast-moving footage like gameplay gives the transcript and only a few frames.
 
 **[▶ Watch the 30-second demo](https://www.youtube.com/shorts/72ZZiSuqWXU)**
 
+**Contents:** [Requirements](#requirements) · [Setup](#setup) · [Use](#use) ·
+[The timestamp gap](#the-timestamp-gap) · [Useful flags](#useful-flags) ·
+[How many frames](#choosing-how-many-frames) ·
+[Claude Code skill](#use-it-with-claude-code) · [Ears](#experimental-ears) ·
+[Just ask Claude](#or-just-ask-claude) · [Disclaimer](#disclaimer)
+
 ## Requirements
 
 The three tools it needs are free. On a Mac, install them with
@@ -188,6 +194,19 @@ python3 detect.py audio.webm 30
 The second command lists moments in the first 30 seconds where a sudden low or
 high sound appears. To draw the timeline picture and for the other tools, see
 [experiments/ears/README.md](experiments/ears/README.md).
+
+## Or just ask Claude
+
+All the commands above are here for reference. With the
+[Claude Code skill](#use-it-with-claude-code) installed, you don't need to type
+any of them - tell Claude what you want in plain English and it runs the right
+commands for you. For example:
+
+- "Convert this video: https://www.youtube.com/watch?v=..."
+- "Just get me the transcript of this one."
+- "What's on screen at 06:29?"
+- "Get me more frames - around 60."
+- "What sound effects can you hear in this Short?" (experimental)
 
 ## Disclaimer
 
