@@ -106,6 +106,23 @@ This is opt-in. A plain run never forward-searches.
 - `--max-frames 50` - cap on frames kept
 - `--client mweb` - force one yt-dlp player client instead of the fallback chain
 
+### Choosing how many frames
+
+You decide how many frames to keep. The more frames you give Claude, the more
+of the video it can actually see - more slides, more steps, more detail to work
+from. The trade-off: every frame takes up part of Claude's context, so a huge
+batch leaves less room for everything else.
+
+```bash
+uv run python -m ytconv "URL" --max-frames 60 --threshold 0.3
+```
+
+`--max-frames` is a limit, not a target (the default is 35). The tool only
+keeps frames where the screen holds still, and skips repeats of the same slide,
+so to get more frames, raise the limit **and** loosen `--threshold` (default
+0.5, lower keeps more). For fewer, cheaper frames, lower the limit:
+`--max-frames 10`.
+
 ## Use it with Claude Code
 
 The repo includes a [Claude Code](https://claude.com/claude-code) skill, so you
