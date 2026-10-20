@@ -1,0 +1,9 @@
+[project]
+name = "ytconv"
+version = "0.1.0"
+description = "Turn a video into a clean transcript and the frames that carry information."
+requires-python = ">=3.13"
+dependencies = []
+
+[tool.uv]
+package = false

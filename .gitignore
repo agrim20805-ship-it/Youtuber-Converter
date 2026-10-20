@@ -1,0 +1,23 @@
+# secrets
+.env
+.env.*
+
+# Python and build files
+__pycache__/
+.venv/
+venv/
+node_modules/
+dist/
+build/
+
+# large media and results
+*.mp4
+*.mov
+*.mkv
+*.webm
+*.zip
+output/
+
+# system
+*.log
+.DS_Store
