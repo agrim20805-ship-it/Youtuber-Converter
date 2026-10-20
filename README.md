@@ -3,6 +3,11 @@
 Turns a YouTube URL into a readable transcript and a folder of frames that are
 almost all worth looking at.
 
+Built for lectures, but it works on any video with captions - gaming clips,
+tutorials, references for Claude. The transcript works on all of them. Frames
+are picked where the screen holds still (slides, code, diagrams), so
+fast-moving footage like gameplay gives the transcript and only a few frames.
+
 <a href="https://www.youtube.com/shorts/72ZZiSuqWXU"><img src="https://img.youtube.com/vi/72ZZiSuqWXU/maxresdefault.jpg" alt="Watch the 30-second demo on YouTube" width="480"></a>
 
 **[▶ Watch the 30-second demo](https://www.youtube.com/shorts/72ZZiSuqWXU)**
