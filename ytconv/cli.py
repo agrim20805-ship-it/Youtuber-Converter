@@ -8,7 +8,7 @@ import sys
 import tempfile
 from pathlib import Path
 
-from . import fetch, frames, mark, match, ocr, stt, transcript
+from . import fetch, frames, mark, match, ocr, repeats, stt, transcript
 
 LANG_RE = re.compile(r"[A-Za-z]{2,3}(-[A-Za-z0-9]{2,8})?")
 
@@ -40,6 +40,9 @@ def build_parser():
                            f"frame every {frames.GAMEPLAY_WINDOW}s plus big scene changes")
     mode.add_argument("--every", type=float, default=None, metavar="SECONDS",
                       help="no filtering: one frame every SECONDS seconds")
+    p.add_argument("--max-same", type=int, default=repeats.MAX_SAME, metavar="N",
+                   help=f"at most N frames of one slide or board (default {repeats.MAX_SAME}; "
+                        "0 keeps every repeat). Needs OCR to check")
     p.add_argument("--frame-width", type=int, default=None,
                    help="downscale frames to this width (default: keep source 1080p)")
     p.add_argument("--debug-scores", action="store_true",
@@ -177,6 +180,9 @@ def main(argv=None):
             label = f"{meta['polarity']}-background video (median luminance {meta['median_lum']})"
         print(f"[frames] {len(scanned)}s scanned, {label}, "
               f"{meta['candidates']} candidates, {len(chosen)} kept", flush=True)
+        if (not args.gameplay and args.every is None
+                and 0 < args.max_same < len(chosen)):
+            chosen = _drop_repeats(args, video, scanned, chosen, rows, meta, out)
 
         # Always written: later stages search this instead of re-scanning.
         (out / "frame-scores.json").write_text(json.dumps(rows, indent=1))
@@ -385,6 +391,35 @@ def _mark(args, seconds, out):
           f"-> marked/ (details in marked.json)", flush=True)
     print(f"[mark] speech vs screen: {counts['on-slide']} on-slide, "
           f"{counts['no match']} no match, {counts['no text']} no text", flush=True)
+
+
+def _drop_repeats(args, video, scanned, chosen, rows, meta, out):
+    """Keep at most --max-same frames of one slide or board (see repeats.py)."""
+    if not ocr.engine():
+        print("[frames] repeated slides not checked: that needs OCR "
+              "(built in on a Mac; free tesseract on Windows/Linux)", flush=True)
+        return chosen
+    seconds = [f["second"] for f in chosen]
+    with tempfile.TemporaryDirectory() as tmp:
+        frames.extract(video, seconds, tmp, width=args.frame_width)
+        paths = {s: str(Path(tmp) / f"frame_{frames.seconds_to_stamp(s)}.jpg") for s in seconds}
+        lines = ocr.read(list(paths.values()), languages=(args.lang or "en",))
+    texts = {s: ocr.text_of(lines.get(p, [])) for s, p in paths.items()}
+    pics = repeats.thumbs(video, seconds, len(scanned))
+    kept, trimmed = repeats.cap(seconds, pics, texts, meta["median_lum"], keep=args.max_same)
+    if not trimmed:
+        return chosen
+    for t in trimmed:
+        for r in rows:
+            if r["second"] in t["group"] and r["second"] not in t["kept"]:
+                r["decision"] = f"drop: same slide/board as {_hms(t['kept'][0])}"
+    (out / "repeats.json").write_text(json.dumps(
+        [{"same_slide": [_hms(s) for s in t["group"]], "kept": [_hms(s) for s in t["kept"]]}
+         for t in trimmed], indent=1))
+    print(f"[frames] {len(seconds) - len(kept)} repeats dropped: {len(trimmed)} slides or "
+          f"boards were in more than {args.max_same} frames; kept the {args.max_same} "
+          f"clearest of each (list in repeats.json, --max-same 0 keeps all)", flush=True)
+    return [f for f in chosen if f["second"] in kept]
 
 
 def _write_frame_index(chosen, out):

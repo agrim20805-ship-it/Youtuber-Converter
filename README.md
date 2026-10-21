@@ -24,6 +24,7 @@ diagrams). For gameplay and other fast footage, use
 [The timestamp gap](#the-timestamp-gap) ·
 [Reading the screen](#reading-the-screen-mark-and-clean-board) ·
 [Useful flags](#useful-flags) · [How many frames](#choosing-how-many-frames) ·
+[Repeated slides](#at-most-two-frames-of-one-slide) ·
 [Gameplay](#gameplay-and-fast-footage) · [How well it works](#how-well-it-works) ·
 [Claude Code skill](#use-it-with-claude-code) · [Ears](#experimental-ears) ·
 [Just ask Claude](#or-just-ask-claude) · [Disclaimer](#disclaimer)
@@ -138,6 +139,7 @@ Output lands in `output/<video_id>/`:
 | `at.json` | with `--at`: the frame picked for each moment and the text read off it |
 | `marked/`, `marked.json` | with `--mark`: frames with boxes around what is being talked about |
 | `clean/` | with `--clean-board`: frames with the presenter removed from the whiteboard |
+| `repeats.json` | slides or boards that showed up in more than 2 frames, and which 2 were kept |
 
 The video itself is downloaded to a temp directory and deleted afterwards, since
 these files are large. `--keep-video` keeps it, `--work-dir DIR` chooses where.
@@ -285,6 +287,7 @@ uv run python -m ytconv "URL" --motion-max 4.5 --mark --clean-board
 - `--debug-scores` - also write `scores.csv` to see why each second was kept or dropped
 - `--threshold 0.3` - loosen frame selection if too little is coming through
 - `--max-frames 50` - cap on frames kept
+- `--max-same 3` - at most 3 frames of one slide or board (default 2; `0` keeps every repeat)
 - `--gameplay` - for games, sport and action: keep the sharpest moments instead of the still ones
 - `--every 5` - no filtering, one frame every 5 seconds
 - `--motion-max 4.5` - let more movement through the stillness check (default 1.0)
@@ -306,6 +309,34 @@ tool only keeps frames where the screen holds still, and skips repeats of the sa
 so to get more frames, raise the limit **and** loosen `--threshold` (default
 0.5, lower keeps more). For fewer, cheaper frames, lower the limit:
 `--max-frames 10`.
+
+### At most two frames of one slide
+
+A presenter walking in front of a whiteboard makes every frame look new, even
+when the writing behind them has not changed. On the whiteboard test video, one
+board came back 7 times (3:17 to 4:09). So the tool now groups frames that show
+the same thing and keeps the **2 clearest** of each group - the ones where the
+presenter blocks the least. `repeats.json` lists every group and what was kept;
+`--max-same 3` allows more, `--max-same 0` turns it off.
+
+Two frames count as the same when either is true:
+
+- with the presenter removed (the `--clean-board` trick, on a small copy), the
+  two pictures are nearly identical
+- both are full of text and the newer one adds fewer than 3 new words
+
+...unless the newer frame adds 10 or more new words: then it is a new slide.
+Without that rule, different screens of a dark screen recording were grouped
+together. The check reads the text on screen, so it needs OCR (built in on a
+Mac, free tesseract elsewhere); without OCR the tool says so and keeps every
+frame.
+
+Measured on the 300 hand-labelled frames: the default mode went from 58% to 60%
+useful frames, and still shows 56% of the useful moments. With `--motion-max 4.5`
+it went from 61% to 64%, and from 62% to 60% of the useful moments: the one
+"missed" moment, at 3:25 on the whiteboard, is the same board as the kept 3:49
+and 4:09 frames. The whiteboard went from 24 frames to 16, the Hindi lecture from
+32 to 28. It added about 10 seconds to a 5-minute video.
 
 ### Gameplay and fast footage
 
@@ -335,7 +366,7 @@ and the tool says so.
 Measured on real lectures in different styles - light slides, a dark screen
 recording, a whiteboard, tablet drawing, Hindi speech over English writing,
 voice-over slides, a code screencast - plus a gameplay Short. A person looked at
-**279 frames** and marked each useful in notes or not, and marked **45 moments**
+**300 frames** and marked each useful in notes or not, and marked **45 moments**
 where a visual first appears after it is spoken. Full tables:
 [tests/RESULTS.md](tests/RESULTS.md). Re-run them yourself with the scripts in
 `tests/` (they download the test videos; nothing is stored in the repo but the
@@ -345,11 +376,11 @@ labels).
 
 | Video style | Default mode | Best mode for it |
 |---|---|---|
-| Light slides | 82% useful | default |
-| Dark screen recording | 81% useful, shows 80% of the useful moments | default |
-| Whiteboard with presenter | 0 of 16 useful | `--motion-max 4.5` or `--gameplay` (32-35%), plus `--clean-board` |
-| Tablet drawing (Khan Academy style) | 5 frames, 3 of the 4 a person judged useful | default |
-| Hindi lecture, presenter at a board | keeps 1 frame | `--gameplay` (50%) or `--motion-max 4.5` (30%), plus `--clean-board` |
+| Light slides | 93% useful | default |
+| Dark screen recording | 86% useful, shows 80% of the useful moments | default |
+| Whiteboard with presenter | 0 of 16 useful | `--motion-max 4.5` or `--gameplay` (38-40%), plus `--clean-board` |
+| Tablet drawing (Khan Academy style) | 5 frames, 4 of them useful | default |
+| Hindi lecture, presenter at a board | keeps 1 frame | `--gameplay` (58%) or `--motion-max 4.5` (54%), plus `--clean-board` |
 | Gameplay Short | keeps 1 frame | `--gameplay` (40%) |
 
 **`--at`** - hits within 6 seconds of where a person said the visual appears:

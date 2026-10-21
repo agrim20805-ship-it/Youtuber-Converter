@@ -155,12 +155,12 @@ decide which moments matter, then look at just those frames.
 **Pick the frame mode from what the video is.** Measured on hand-labelled
 lectures (`PROJECT/tests/RESULTS.md`):
 
-- Slides or a screen recording: the default (81-82% of kept frames useful).
+- Slides or a screen recording: the default (86-93% of kept frames useful).
 - A presenter at a whiteboard, a shaky camera, a presenter beside the slides,
   or a Short: `--motion-max 4.5` (the default keeps almost nothing there).
   Add `--clean-board` for whiteboards (Step 7).
 - Tablet drawing on a dark background (Khan Academy style): the default works
-  (3 of 4 judged useful), but a drawing that builds up slowly keeps its early
+  (4 of 5 kept frames useful), but a drawing that builds up slowly keeps its early
   stage - add `--every 30` if the user wants the finished drawing.
 - Gameplay, sport, action: `--gameplay` (sharpest second every 3 seconds plus
   big scene changes; stillness ignored).
@@ -247,6 +247,9 @@ Report what you hear with timestamps, and say how sure you are.
 - `--stt-engine faster-whisper|whisper.cpp` - pick the engine.
 - `--at MM:SS` - the frame for a transcript moment (Step 6). Repeatable.
 - `--mark`, `--clean-board` - boxed / presenter-free copies (Step 7).
+- `--max-same N` - at most N frames of one slide or board (default 2; 0 keeps
+  every repeat). On by default; `repeats.json` lists what was dropped. Needs
+  OCR (built in on a Mac); without it the tool says so and keeps everything.
 - `--debug-scores` - writes `scores.csv` with the keep/drop reason for every
   second. Reach for this when frames come back wrong.
 - `--threshold 0.3` - loosen selection when too few frames come through.
@@ -332,3 +335,4 @@ Re-run with `--debug-scores` and read `scores.csv`. The usual causes, in order:
 | `at.json` | with `--at`: the frame, the text read off it, whether it matched |
 | `marked/`, `marked.json` | with `--mark` |
 | `clean/` | with `--clean-board` |
+| `repeats.json` | slides or boards that were in more than 2 frames, and which 2 were kept |

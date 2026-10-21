@@ -2,6 +2,7 @@
 
     uv run python tests/score.py            # print the table
     uv run python tests/score.py --write    # also write tests/RESULTS.md
+    uv run python tests/score.py --max-same 0   # without the repeated-slide cap
 
 The modes are re-run on the saved scans with the CURRENT code, so a change to
 ytconv/frames.py is scored the moment it is made - no re-download.
@@ -23,7 +24,7 @@ ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 sys.path.insert(0, str(ROOT / "tests"))
 
-from ytconv import frames  # noqa: E402
+from ytconv import frames, repeats  # noqa: E402
 from build_testset import matching_label_second, modes  # noqa: E402
 
 LABELS = ROOT / "tests" / "labels" / "frames.csv"
@@ -34,7 +35,7 @@ def load_labels():
         return {(r["video"], int(r["second"])): r["label"] for r in csv.DictReader(fh)}
 
 
-def score_video(key, labels):
+def score_video(key, labels, max_same=repeats.MAX_SAME):
     d = ROOT / "testdata" / key
     scan = json.loads((d / "scan.json").read_text())
     meta = json.loads((d / "testset.json").read_text())
@@ -52,7 +53,7 @@ def score_video(key, labels):
 
     useful_sample = [s for s in labelled if labels[(key, s)] == "useful"]
     rows = {}
-    for mode, kept in modes(scan).items():
+    for mode, kept in modes(scan, key, max_same).items():
         got = [label_of(s) for s in kept]
         useful, not_useful = got.count("useful"), got.count("not")
         covered = sum(
@@ -76,6 +77,9 @@ def pct(x):
 def main():
     p = argparse.ArgumentParser()
     p.add_argument("--write", action="store_true", help="also write tests/RESULTS.md")
+    p.add_argument("--max-same", type=int, default=repeats.MAX_SAME,
+                   help="the tool's repeated-slide cap (0 = off); needs "
+                        "tests/build_repeats_cache.py to have run")
     args = p.parse_args()
 
     labels = load_labels()
@@ -87,7 +91,7 @@ def main():
         key = v["key"]
         if v.get("purpose") == "at" or not (ROOT / "testdata" / key / "scan.json").exists():
             continue
-        rows, n_lab, n_useful = score_video(key, labels)
+        rows, n_lab, n_useful = score_video(key, labels, args.max_same)
         for mode, r in rows.items():
             lines.append(f"| {key} | {v['style']} | {mode} | {r['kept']} | {r['useful']} | {r['not']} | "
                          f"{pct(r['precision'])} | {pct(r['coverage'])} |")
@@ -122,7 +126,13 @@ def main():
             "covers the writing counts as not useful, unless they are pointing at it.\n\n"
             "precision = of the frames a mode keeps, the share a person called useful. "
             "coverage = of the useful moments in an even sample, the share some kept "
-            "frame shows.\n\n" + text + "\n" + rest)
+            "frame shows.\n\n"
+            + (f"default and motion4.5 include the tool's repeated-slide cap (at most "
+               f"{args.max_same} frames of one slide or board, ytconv/repeats.py); "
+               "`tests/score.py --max-same 0` scores them without it.\n\n"
+               if args.max_same else "default and motion4.5 are scored WITHOUT the "
+               "repeated-slide cap (--max-same 0).\n\n")
+            + text + "\n" + rest)
         print("\nwrote tests/RESULTS.md")
 
 

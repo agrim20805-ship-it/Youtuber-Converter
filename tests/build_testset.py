@@ -18,11 +18,12 @@ import json
 import random
 import sys
 from pathlib import Path
+from statistics import median
 
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
-from ytconv import fetch, frames  # noqa: E402
+from ytconv import fetch, frames, repeats  # noqa: E402
 
 SAMPLE = 35          # evenly spaced seconds to label per video
 KEPT_PER_MODE = 6    # extra kept frames per mode to label, chosen at random, when they
@@ -32,14 +33,39 @@ NEAR_SECONDS = 15    # a kept frame inherits a label only from a labelled second
 LABEL_WIDTH = 960    # wide enough to read slide text on the labelling page
 
 
-def modes(scan):
-    """Every frame mode the scorer compares, run on one saved scan."""
+def modes(scan, key=None, max_same=0):
+    """Every frame mode the scorer compares, run on one saved scan.
+
+    With `key` and `max_same`, the two picker modes also get the tool's
+    repeated-slide cap (ytconv/repeats.py), from the pictures and text cached
+    by tests/build_repeats_cache.py. No cache: the cap is skipped, with a note."""
     out = {}
     out["default"] = frames.select(scan)[0]
     out["motion4.5"] = frames.select(scan, motion_max=4.5)[0]
     out["gameplay"] = frames.select_gameplay(scan)[0]
     out["every"] = frames.select_interval(scan, every=10)[0]
-    return {name: [f["second"] for f in chosen] for name, chosen in out.items()}
+    out = {name: [f["second"] for f in chosen] for name, chosen in out.items()}
+    if key and max_same:
+        cache = repeats_cache(key)
+        med_lum = median(f["mean_lum"] for f in scan)
+        for name in ("default", "motion4.5"):
+            if cache and all(s in cache["pics"] for s in out[name]):
+                out[name] = repeats.cap(out[name], cache["pics"], cache["texts"],
+                                        med_lum, keep=max_same)[0]
+            elif len(out[name]) > max_same:
+                print(f"[{key}] no repeats cache for {name}: run tests/build_repeats_cache.py",
+                      file=sys.stderr)
+    return out
+
+
+def repeats_cache(key):
+    """{"pics": {second: (board, frame)}, "texts": {second: text}} or None."""
+    path = ROOT / "testdata" / key / "repeats-cache.json"
+    if not path.exists():
+        return None
+    raw = json.loads(path.read_text())
+    return {"pics": {int(s): (bytes.fromhex(b), bytes.fromhex(f)) for s, (b, f) in raw["pics"].items()},
+            "texts": {int(s): t for s, t in raw["texts"].items()}}
 
 
 def matching_label_second(sec, scan_by_sec, labelled, same=SAME_PICTURE):
