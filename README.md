@@ -348,7 +348,7 @@ labels).
 | Light slides | 82% useful | default |
 | Dark screen recording | 81% useful, shows 80% of the useful moments | default |
 | Whiteboard with presenter | 0 of 16 useful | `--motion-max 4.5` or `--gameplay` (32-35%), plus `--clean-board` |
-| Tablet drawing (Khan Academy style) | **keeps nothing** - a known bug, see below | `--every 10` |
+| Tablet drawing (Khan Academy style) | 5 frames, 3 of the 4 a person judged useful | default |
 | Hindi lecture, presenter at a board | keeps 1 frame | `--gameplay` (50%) or `--motion-max 4.5` (30%), plus `--clean-board` |
 | Gameplay Short | keeps 1 frame | `--gameplay` (40%) |
 
@@ -370,8 +370,11 @@ text.
 
 **Known weak spots** (measured, not fixed yet):
 
-- Tablet-drawing videos with a dark background lose every frame in the default
-  mode: the "near-black" check uses a fixed brightness limit. Use `--every 10`.
+- A drawing that builds up slowly (tablet videos): the tool keeps the stage it
+  sees first, and later additions to the same picture can be dropped as
+  repeats. On the test video, notation added after 4:39 was missed. Add
+  `--every 30` for the later stages. (Until 2026-10-21 these videos kept no
+  frames at all; the dark-background check is now relative to the video.)
 - A presenter standing in front of the board: the default mode drops most
   frames as "moving footage". `--motion-max 4.5` and `--clean-board` help.
 - A teacher who writes slowly: the visual can land 12-60 seconds after it is

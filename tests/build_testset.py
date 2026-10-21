@@ -42,14 +42,15 @@ def modes(scan):
     return {name: [f["second"] for f in chosen] for name, chosen in out.items()}
 
 
-def matching_label_second(sec, scan_by_sec, labelled):
-    """The labelled second that shows the same picture as `sec`, or None."""
+def matching_label_second(sec, scan_by_sec, labelled, same=SAME_PICTURE):
+    """The labelled second that shows the same picture as `sec`, or None.
+    `same`: the video's own same-picture distance (frames.same_distance)."""
     best = None
     for s in labelled:
         if abs(s - sec) > NEAR_SECONDS:
             continue
         d = frames._distance(scan_by_sec[sec]["lum"], scan_by_sec[s]["lum"])
-        if d < SAME_PICTURE and (best is None or d < best[0]):
+        if d < same and (best is None or d < best[0]):
             best = (d, s)
     return best[1] if best else None
 

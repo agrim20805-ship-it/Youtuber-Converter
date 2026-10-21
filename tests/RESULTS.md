@@ -20,9 +20,9 @@ precision = of the frames a mode keeps, the share a person called useful. covera
 | whiteboard | whiteboard, handwriting | motion4.5 | 24 | 6 | 13 |   32% |   88% |
 | whiteboard | whiteboard, handwriting | gameplay | 35 | 8 | 15 |   35% |   88% |
 | whiteboard | whiteboard, handwriting | every | 34 | 6 | 16 |   27% |   62% |
-| tablet | tablet drawing, no presenter | default | 0 | 0 | 0 |   -   |    0% |
-| tablet | tablet drawing, no presenter | motion4.5 | 0 | 0 | 0 |   -   |    0% |
-| tablet | tablet drawing, no presenter | gameplay | 0 | 0 | 0 |   -   |    0% |
+| tablet | tablet drawing, no presenter | default | 5 | 3 | 1 |   75% |  100% |
+| tablet | tablet drawing, no presenter | motion4.5 | 5 | 3 | 1 |   75% |  100% |
+| tablet | tablet drawing, no presenter | gameplay | 30 | 8 | 21 |   28% |  100% |
 | tablet | tablet drawing, no presenter | every | 35 | 9 | 21 |   30% |  100% |
 | hindi | Hindi speech, English slides and writing, presenter | default | 1 | 0 | 1 |    0% |   25% |
 | hindi | Hindi speech, English slides and writing, presenter | motion4.5 | 32 | 3 | 7 |   30% |   25% |
@@ -35,9 +35,9 @@ precision = of the frames a mode keeps, the share a person called useful. covera
 
 | all videos | mode | precision | coverage |
 |---|---|---|---|
-| | default |   49% (22/45) |   41% (26/63) |
-| | motion4.5 |   51% (33/65) |   48% (30/63) |
-| | gameplay |   43% (27/63) |   27% (17/63) |
+| | default |   51% (25/49) |   56% (35/63) |
+| | motion4.5 |   52% (36/69) |   62% (39/63) |
+| | gameplay |   38% (35/92) |   41% (26/63) |
 | | every |   39% (34/88) |   62% (39/63) |
 
 ## --at against human answers

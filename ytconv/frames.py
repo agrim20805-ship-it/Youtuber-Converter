@@ -38,7 +38,7 @@ GRAY_BYTES = SCAN_W * SCAN_H
 
 DEFAULT_THRESHOLD = 0.5   # texture relative to the video's own median
 MOTION_MAX = 1.0          # above this the frame is moving footage, not a screen
-DARK_FLOOR = 12.0         # fades to black
+DARK_FLOOR = 12.0         # fades to black (see dark_floor: relative on dark videos)
 BRIGHT_CEILING = 243.0    # blank or washed-out slides
 TEXTURE_FLOOR = 0.30      # essentially nothing on screen
 DEDUP_DISTANCE = 6.0      # mean luminance difference below this = the same slide
@@ -136,6 +136,29 @@ def _scan_texture(video):
     return values
 
 
+def dark_floor(med_lum):
+    """Below this a frame counts as a fade to black.
+
+    A fixed 12 dropped every second of a Khan Academy tablet video: thin
+    coloured writing on a black canvas has a median brightness of 3.7. A fade
+    is dark compared with the rest of ITS video, so on dark videos the floor
+    is half their median. Videos with a median of 24 or more keep 12.
+    """
+    return min(DARK_FLOOR, med_lum / 2)
+
+
+def same_distance(med_lum):
+    """Thumbnail distance below which two seconds show the same slide.
+
+    6 suits normal videos (bright slides move ~69 in 30 s). On a black tablet
+    canvas the whole picture averages 3.7, and separate stages of a drawing
+    differ by only 0.2-1.1, so a fixed 6 merged the whole video into one
+    frame. Dark videos (median under 24, where dark_floor drops below 12)
+    shrink it in proportion.
+    """
+    return DEDUP_DISTANCE * min(1.0, med_lum / (2 * DARK_FLOOR))
+
+
 def select(frames, threshold=DEFAULT_THRESHOLD, max_frames=35,
            min_gap=MIN_GAP_SECONDS, motion_max=MOTION_MAX):
     """Gate on stillness, score on texture, then spread across the video."""
@@ -143,6 +166,7 @@ def select(frames, threshold=DEFAULT_THRESHOLD, max_frames=35,
     med_lum = median(f["mean_lum"] for f in frames)
     polarity = "light" if med_lum > 127 else "dark"
 
+    floor = dark_floor(med_lum)
     debug = {}
     candidates = []
     for f in frames:
@@ -151,7 +175,7 @@ def select(frames, threshold=DEFAULT_THRESHOLD, max_frames=35,
         # Reject near EITHER extreme. The original rule dropped only dark frames,
         # which is right for dark-mode recordings and wrong for slides: a blank
         # white slide sailed straight through.
-        if f["mean_lum"] < DARK_FLOOR:
+        if f["mean_lum"] < floor:
             debug[f["second"]] = "drop: near-black"
         elif f["mean_lum"] > BRIGHT_CEILING:
             debug[f["second"]] = "drop: near-white"
@@ -166,6 +190,7 @@ def select(frames, threshold=DEFAULT_THRESHOLD, max_frames=35,
             candidates.append(f)
 
     chosen = []
+    same = same_distance(med_lum)
     if candidates:
         duration = frames[-1]["second"] + 1
         bucket = max(1, duration / max_frames)
@@ -182,7 +207,7 @@ def select(frames, threshold=DEFAULT_THRESHOLD, max_frames=35,
                     debug[f["second"]] = "drop: too close to previous"
                     continue
                 # A slide held for 60 seconds should yield one frame, not twelve.
-                if _distance(f["lum"], last_kept["lum"]) < DEDUP_DISTANCE:
+                if _distance(f["lum"], last_kept["lum"]) < same:
                     debug[f["second"]] = "drop: same slide as previous"
                     continue
             debug[f["second"]] = "KEEP"
@@ -203,11 +228,12 @@ def select_gameplay(frames, max_frames=35, window=GAMEPLAY_WINDOW):
     """
     med_tex = median(f["texture"] for f in frames) or 1e-6
     med_lum = median(f["mean_lum"] for f in frames)
+    floor = dark_floor(med_lum)
     debug = {}
     candidates = []
     for f in frames:
         f["score"] = f["texture"] / med_tex
-        if f["mean_lum"] < DARK_FLOOR:
+        if f["mean_lum"] < floor:
             debug[f["second"]] = "drop: near-black"
         elif f["mean_lum"] > BRIGHT_CEILING:
             debug[f["second"]] = "drop: near-white"

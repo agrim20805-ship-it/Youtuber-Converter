@@ -159,8 +159,9 @@ lectures (`PROJECT/tests/RESULTS.md`):
 - A presenter at a whiteboard, a shaky camera, a presenter beside the slides,
   or a Short: `--motion-max 4.5` (the default keeps almost nothing there).
   Add `--clean-board` for whiteboards (Step 7).
-- Tablet drawing on a dark background (Khan Academy style): `--every 10`. The
-  default currently keeps **nothing** on these - a known bug.
+- Tablet drawing on a dark background (Khan Academy style): the default works
+  (3 of 4 judged useful), but a drawing that builds up slowly keeps its early
+  stage - add `--every 30` if the user wants the finished drawing.
 - Gameplay, sport, action: `--gameplay` (sharpest second every 3 seconds plus
   big scene changes; stillness ignored).
 - The user wants everything, repeats included: `--every N`.
@@ -289,8 +290,9 @@ Re-run with `--debug-scores` and read `scores.csv`. The usual causes, in order:
    instead - there, the moving seconds are the ones worth keeping.
 
    Do not change the 1.0 default - it is right for lecture screencasts.
-2. **Everything "near-black".** A dark-background tablet video. Use
-   `--every 10`; the fixed brightness limit is a known bug.
+2. **Everything "near-black".** Should no longer happen on dark tablet videos -
+   the cutoff is relative to the video's own brightness (half its median, at
+   most 12). If it does, use `--every 10` and tell the user.
 3. **Everything "below threshold".** Low-contrast material - pencil on paper,
    a dim whiteboard. Try `--threshold 0.3`.
 4. **Faces getting through.** The presenter sat still. Expected at a low rate,

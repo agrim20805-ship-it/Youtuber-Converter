@@ -9,7 +9,7 @@ ytconv/frames.py is scored the moment it is made - no re-download.
 precision  of the frames a mode keeps, the share a person called useful
 coverage   of the evenly sampled seconds a person called useful, the share whose
            picture some kept frame shows (same picture = thumbnail distance
-           below frames.DEDUP_DISTANCE)
+           below frames.same_distance - 6, smaller on dark videos)
 """
 
 import argparse
@@ -17,13 +17,14 @@ import csv
 import json
 import sys
 from pathlib import Path
+from statistics import median
 
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 sys.path.insert(0, str(ROOT / "tests"))
 
 from ytconv import frames  # noqa: E402
-from build_testset import SAME_PICTURE, matching_label_second, modes  # noqa: E402
+from build_testset import matching_label_second, modes  # noqa: E402
 
 LABELS = ROOT / "tests" / "labels" / "frames.csv"
 
@@ -38,13 +39,15 @@ def score_video(key, labels):
     scan = json.loads((d / "scan.json").read_text())
     meta = json.loads((d / "testset.json").read_text())
     by_sec = {f["second"]: f for f in scan}
+    # the same rule the picker uses: smaller on dark videos (frames.same_distance)
+    same = frames.same_distance(median(f["mean_lum"] for f in scan))
     sample = [int(s) for s, why in meta["queue"].items() if why == "sample"]
     labelled = [s for s in sample if (key, s) in labels]
 
     def label_of(sec):
         if (key, sec) in labels:
             return labels[(key, sec)]
-        match = matching_label_second(sec, by_sec, labelled)
+        match = matching_label_second(sec, by_sec, labelled, same)
         return labels.get((key, match)) if match is not None else None
 
     useful_sample = [s for s in labelled if labels[(key, s)] == "useful"]
@@ -54,7 +57,7 @@ def score_video(key, labels):
         useful, not_useful = got.count("useful"), got.count("not")
         covered = sum(
             1 for s in useful_sample
-            if any(frames._distance(by_sec[s]["lum"], by_sec[k]["lum"]) < SAME_PICTURE for k in kept))
+            if any(frames._distance(by_sec[s]["lum"], by_sec[k]["lum"]) < same for k in kept))
         rows[mode] = {
             "kept": len(kept),
             "useful": useful,
@@ -108,7 +111,9 @@ def main():
         res = ROOT / "tests" / "RESULTS.md"
         # keep the sections other scripts add (--at, speech-to-text)
         old = res.read_text() if res.exists() else ""
-        rest = "\n## " + old.split("\n## ", 1)[1] if "\n## " in old else ""
+        others = [sec for sec in old.split("\n## ")[1:]
+                  if not sec.startswith("Frame picking")]   # this script's own section is rewritten
+        rest = "".join("\n## " + sec for sec in others)
         res.write_text(
             "# Measured results\n\n## Frame picking against human labels\n\n"
             "Made by `tests/score.py` from the labels in `tests/labels/frames.csv`: "
