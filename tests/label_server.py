@@ -120,7 +120,9 @@ async function answer(label){
   const it=items[i]; if(!it) return;
   await fetch('/api/label',{method:'POST',headers:{'Content-Type':'application/json'},
     body:JSON.stringify({video:it.video,second:it.second,label})});
-  labels[k(it)]=label; i++; show();
+  labels[k(it)]=label;
+  // jump to the next frame without a label (earlier batches stay labelled)
+  let j=items.findIndex((x,n)=>n>i && !(k(x) in labels)); i=(j<0)?items.length:j; show();
 }
 function back(){ if(i>0){i--; show();} }
 document.addEventListener('keydown',e=>{
