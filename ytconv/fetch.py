@@ -23,6 +23,7 @@ yt-dlp said it would pick.
 import json
 import re
 import subprocess
+import time
 from pathlib import Path
 
 # Ordered best-first. Anything that resolves 1080p goes before the 360p-only
@@ -78,53 +79,196 @@ def _client_args(client):
     return ["--extractor-args", f"youtube:player_client={client}"]
 
 
-def fetch_captions(url, outdir):
-    """Download captions and metadata. Works on the default client.
+def fetch_captions(url, outdir, lang=None, translate=None):
+    """Download the best caption track and the metadata. Works on the default client.
 
-    The `en.*` wildcard silently matches nothing, so the languages are named
-    explicitly. Returns a dict with the chosen caption file and video metadata.
+    Two steps, because asking for a track YouTube refuses aborts the whole
+    yt-dlp run - captions AND metadata. YouTube refuses auto-translated tracks
+    (HTTP 429, measured 2026-10-21), and a video whose metadata names the wrong
+    language makes "en" an auto-translation. So:
+
+      1. read the video's info: which human-written subtitles exist, which
+         original-language automatic tracks ("xx-orig") exist
+      2. choose ONE track and download only that
+
+    Choice, best first:
+      - human subtitles in the video's language (or the --lang override)
+      - human subtitles in English (any variant: en, en-GB, en-US)
+      - the original automatic track, preferring the video's language
+    The metadata language is a hint, not a fact: Neso Academy (English) is
+    tagged "hi", a Gate Smashers lecture (Hindi) is tagged "en", and on that
+    one YouTube's English speech recognition produced nonsense while the
+    uploader's English subtitles were good. Human tracks win for that reason.
+
+    `translate` is fetched separately and may fail without harming the rest.
     """
     outdir = Path(outdir)
     outdir.mkdir(parents=True, exist_ok=True)
 
     code, out = _run([
-        "yt-dlp",
-        "--skip-download",
-        "--write-auto-subs", "--write-subs",
-        "--sub-langs", "en-orig,en",
-        "--sub-format", "vtt",
-        "--write-info-json",
-        "--no-playlist",
+        "yt-dlp", "--skip-download", "--write-info-json", "--no-playlist",
         "-o", str(outdir / "v"),
         "--", url,   # "--": what follows is a link, never an option
     ])
-    # en-orig is the original track; en may be a translation. Prefer the original.
-    vtt = None
-    for name in ("v.en-orig.vtt", "v.en.vtt"):
-        if (outdir / name).exists():
-            vtt = outdir / name
-            break
-
-    # Asking for two tracks is asking for twice the requests, and the second one
-    # can 429 after the first has already landed a complete file. A non-zero exit
-    # is therefore not fatal on its own -- only the absence of a usable VTT is.
-    if code != 0 and vtt is None:
-        raise FetchError(f"caption download failed:\n{out}")
-
-    info = {}
     info_path = outdir / "v.info.json"
-    if info_path.exists():
-        raw = json.loads(info_path.read_text())
-        # Chapters are the cheapest possible outline of a video - read them
-        # before deciding anything else.
-        info = {
-            "title": raw.get("title"),
-            "uploader": raw.get("uploader"),
-            "duration": raw.get("duration"),
-            "chapters": raw.get("chapters") or [],
-        }
+    if not info_path.exists():
+        raise FetchError(f"could not read the video's information:\n{out}")
+    raw = json.loads(info_path.read_text())
+    human = list(raw.get("subtitles") or {})
+    auto = list(raw.get("automatic_captions") or {})
+    hint = lang or raw.get("language") or ""
 
-    return {"vtt": vtt, "info": info, "info_path": info_path if info_path.exists() else None}
+    def same(code_, want):
+        return bool(want) and code_.split("-")[0].lower() == want.split("-")[0].lower()
+
+    choice = None   # (track code, is_human)
+    for c in human:
+        if same(c, hint):
+            choice = (c, True)
+            break
+    if choice is None and lang:
+        # Asked for a language: its own automatic track beats English subtitles.
+        for c in auto:
+            if c.endswith("-orig") and same(c, lang):
+                choice = (c, False)
+                break
+    if choice is None:
+        for c in human:
+            if same(c, "en"):
+                choice = (c, True)
+                break
+    if choice is None:
+        origs = [c for c in auto if c.endswith("-orig")]
+        origs.sort(key=lambda c: not same(c, hint))   # the hinted language first
+        if origs:
+            choice = (origs[0], False)
+
+    vtt, language, source = None, hint or "unknown", None
+    if choice is not None:
+        track, is_human = choice
+        got = _fetch_one_track(url, outdir, track, human=is_human)
+        if got is True:
+            vtt = outdir / f"v.{track}.vtt"
+            language = _plain_code(track[:-len("-orig")] if track.endswith("-orig") else track)
+            source = "captions (human)" if is_human else "captions (auto)"
+
+    translated, translate_error = None, None
+    if translate and not same(language, translate):
+        tcode = next((c for c in human if same(c, translate)), None)
+        is_human = tcode is not None
+        tcode = tcode or translate
+        got = _fetch_one_track(url, outdir, tcode, human=is_human)
+        if got is True:
+            translated = {"vtt": outdir / f"v.{tcode}.vtt", "lang": _plain_code(tcode),
+                          "source": "human subtitles" if is_human else "auto-translated by YouTube"}
+        else:
+            translate_error = got
+
+    # Chapters are the cheapest possible outline of a video - read them
+    # before deciding anything else.
+    info = {
+        "title": raw.get("title"),
+        "uploader": raw.get("uploader"),
+        "duration": raw.get("duration"),
+        "chapters": raw.get("chapters") or [],
+    }
+    return {"vtt": vtt, "info": info, "info_path": info_path,
+            "language": language, "source": source, "translated": translated,
+            "translate_error": translate_error}
+
+
+def _plain_code(code):
+    """'en-GB' and 'zh-Hans' stay; YouTube's internal 'en-ehkg1hFWq8A' becomes 'en'."""
+    parts = code.split("-")
+    if len(parts) > 1 and len(parts[1]) in (2, 4):
+        return f"{parts[0]}-{parts[1]}"
+    return parts[0]
+
+
+def _fetch_one_track(url, outdir, lang, human=False, attempts=2):
+    """One caption track on its own request, retrying once on HTTP 429.
+
+    Measured 2026-10-21: YouTube answered 429 to EVERY auto-translated track
+    (es, fr, de on two videos) while original and uploader-written tracks still
+    downloaded in the same minute. So a 429 here usually means auto-translation
+    is refused, not that we asked too fast; one retry is enough. Returns True if
+    the track arrived, else the reason."""
+    out = ""
+    for i in range(attempts):
+        if i:
+            time.sleep(10)
+        code, out = _run([
+            "yt-dlp", "--skip-download",
+            "--write-subs" if human else "--write-auto-subs",
+            "--sub-langs", lang, "--sub-format", "vtt",
+            "--no-playlist", "-o", str(outdir / "v"),
+            "--", url,   # "--": what follows is a link, never an option
+        ])
+        if list(outdir.glob(f"v.{lang}.vtt")):
+            return True
+        if "429" not in out:
+            break
+    return "refused (HTTP 429)" if "429" in out else "not offered"
+
+
+def fetch_audio(url, outdir, clients=None):
+    """Download the audio track only, for speech-to-text. Same client chain as
+    the video; quality is not an issue for speech, so the first success wins."""
+    outdir = Path(outdir)
+    outdir.mkdir(parents=True, exist_ok=True)
+    failures = []
+    for client in (clients or CLIENT_CHAIN):
+        print(f"[fetch] audio via player client: {client}", flush=True)
+        code, out = _run([
+            "yt-dlp",
+            *_client_args(client),
+            "-f", "ba/b",
+            "--no-playlist",
+            "--newline",
+            "-o", str(outdir / f"audio.{client}.%(ext)s"),
+            "--", url,   # "--": what follows is a link, never an option
+        ])
+        got = sorted(outdir.glob(f"audio.{client}.*"))
+        if code == 0 and got and got[0].stat().st_size > 0:
+            return got[0]
+        reason = _summarise_failure(out)
+        failures.append(f"  {client}: {reason}")
+        print(f"[fetch] {client} failed: {reason}", flush=True)
+    raise FetchError("every client failed to download the audio:\n" + "\n".join(failures))
+
+
+def _download(client, url, outdir):
+    """One download attempt. Returns (path, short side, None) or (None, 0, reason)."""
+    attempt = Path(outdir) / f"video.{client}.mp4"
+    code, out = _run([
+        "yt-dlp",
+        *_client_args(client),
+        "-f", VIDEO_FORMAT,
+        "--merge-output-format", "mp4",
+        # 10 MB requests: YouTube cut a whole-file 1080p stream off mid-way ten
+        # times in a row on 2026-10-21; the same download in chunks completed.
+        "--http-chunk-size", "10M",
+        "--no-playlist",
+        "--newline",
+        "-o", str(attempt),
+        "--", url,   # "--": what follows is a link, never an option
+    ], tee=True)
+    # Note: yt-dlp prints a "missing PO Token" WARNING and then downloads
+    # anyway. The warning is not the error - only the exit code decides.
+    if not (code == 0 and attempt.exists() and attempt.stat().st_size > 0):
+        if attempt.exists():
+            attempt.unlink()
+        return None, 0, _summarise_failure(out)
+    return attempt, _short_side(attempt), None
+
+
+def _keep(attempt, target, best, client, side):
+    attempt.replace(target)
+    if best is not None and best[1].exists():
+        best[1].unlink()
+    print(f"[fetch] ok via {client} at {side}p "
+          f"({target.stat().st_size / 1_000_000:.1f} MB)", flush=True)
+    return target
 
 
 def fetch_video(url, outdir, clients=None):
@@ -151,36 +295,14 @@ def fetch_video(url, outdir, clients=None):
                 continue
 
         print(f"[fetch] trying player client: {client}", flush=True)
-        attempt = outdir / f"video.{client}.mp4"
-        code, out = _run([
-            "yt-dlp",
-            *_client_args(client),
-            "-f", VIDEO_FORMAT,
-            "--merge-output-format", "mp4",
-            "--no-playlist",
-            "--newline",
-            "-o", str(attempt),
-            "--", url,   # "--": what follows is a link, never an option
-        ], tee=True)
-
-        # Note: yt-dlp prints a "missing PO Token" WARNING and then downloads
-        # anyway. The warning is not the error - only the exit code decides.
-        if not (code == 0 and attempt.exists() and attempt.stat().st_size > 0):
-            reason = _summarise_failure(out)
+        attempt, side, reason = _download(client, url, outdir)
+        if attempt is None:
             failures.append(f"  {client}: {reason}")
             print(f"[fetch] {client} failed: {reason}", flush=True)
-            if attempt.exists():
-                attempt.unlink()
             continue
 
-        side = _short_side(attempt)
         if side >= TARGET_SHORT_SIDE:
-            attempt.replace(target)
-            if best is not None:
-                best[1].unlink()
-            print(f"[fetch] ok via {client} at {side}p "
-                  f"({target.stat().st_size / 1_000_000:.1f} MB)", flush=True)
-            return target
+            return _keep(attempt, target, best, client, side)
 
         print(f"[fetch] {client} delivered only {side}p, below "
               f"{TARGET_SHORT_SIDE}p - kept as a fallback", flush=True)
@@ -190,6 +312,24 @@ def fetch_video(url, outdir, clients=None):
             best = (side, attempt, client)
         else:
             attempt.unlink()
+
+    # YouTube varies between requests: on 2026-10-21 the same client gave one
+    # video at 360p and, minutes later, at 1080p. So if a client still
+    # advertises 1080p, give it exactly one more try before settling.
+    if best is not None and best[0] < TARGET_SHORT_SIDE and not clients:
+        for client in CLIENT_CHAIN:
+            offered = _probe_short_side(client, url)
+            if offered is None or offered < TARGET_SHORT_SIDE:
+                continue
+            print(f"[fetch] {client} advertises {offered}p - one more try", flush=True)
+            time.sleep(5)
+            attempt, side, reason = _download(client, url, outdir)
+            if attempt is not None and side >= TARGET_SHORT_SIDE:
+                return _keep(attempt, target, best, client, side)
+            if attempt is not None:
+                attempt.unlink()
+            print(f"[fetch] retry gave {side or reason}", flush=True)
+            break
 
     if best is not None:
         best[1].replace(target)

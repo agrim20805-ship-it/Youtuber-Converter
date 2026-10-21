@@ -387,3 +387,42 @@ def seconds_to_stamp(seconds):
     if seconds >= 3600:
         return f"{seconds // 3600:02d}-{(seconds % 3600) // 60:02d}-{seconds % 60:02d}"
     return f"{seconds // 60:02d}-{seconds % 60:02d}"
+
+
+# --- --clean-board: remove a presenter standing in front of the board ---------
+#
+# For each pixel, keep the value it has for most of the next CLEAN_WINDOW
+# seconds (a temporal median, ffmpeg's tmedian). Writing stays put; a person
+# who moves around vanishes. Tried 2026-10-21 on 4 + 4 frames a person had
+# labelled "not useful" on two whiteboard lectures:
+#   10 s centred on the frame   1 of 8 clearly readable (he had not moved yet)
+#   40 s after the frame        8 of 8 showed the writing he was blocking
+# Costs: a smudge where he stood longest, writing added in the next ~20 s can
+# appear (sometimes half-written), anything erased in the window disappears.
+# About 0.7 s per frame at 1080p. Copies go to clean/; originals untouched.
+
+CLEAN_WINDOW = 40
+
+
+def clean_board(video, seconds, outdir, duration, window=CLEAN_WINDOW, width=None):
+    """Write clean/frame_MM-SS.jpg for each second; returns the paths written."""
+    outdir = Path(outdir)
+    outdir.mkdir(parents=True, exist_ok=True)
+    window = max(3, min(window, int(duration)))
+    radius = (window - 1) // 2
+    written = []
+    for sec in seconds:
+        # near the end there are not 40 s left: slide the window back to fit
+        start = max(0, min(sec, int(duration) - window - 1))
+        vf = f"fps=1,tmedian=radius={radius}"
+        if width:
+            vf += f",scale={width}:-2:flags=lanczos"
+        out = outdir / f"frame_{seconds_to_stamp(sec)}.jpg"
+        # tmedian only outputs once it holds 2*radius+1 frames, so its FIRST
+        # output frame is the median of the whole window
+        proc = subprocess.run(["ffmpeg", "-v", "error", "-ss", str(start), "-t", str(window + 2),
+                               "-i", str(video), "-vf", vf, "-frames:v", "1", "-q:v", "2",
+                               str(out), "-y"])
+        if proc.returncode == 0 and out.exists():
+            written.append(out)
+    return written

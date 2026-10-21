@@ -8,7 +8,9 @@ import sys
 import tempfile
 from pathlib import Path
 
-from . import fetch, frames, transcript
+from . import fetch, frames, mark, match, ocr, stt, transcript
+
+LANG_RE = re.compile(r"[A-Za-z]{2,3}(-[A-Za-z0-9]{2,8})?")
 
 
 def build_parser():
@@ -43,10 +45,27 @@ def build_parser():
     p.add_argument("--debug-scores", action="store_true",
                    help="write scores.csv with every second's metrics and keep/drop reason")
     p.add_argument("--at", action="append", default=[], metavar="MM:SS",
-                   help="find the visual for a transcript timestamp, searching "
-                        "forward up to 2 minutes. Repeatable.")
+                   help="the frame for a transcript timestamp: 8 s after it was "
+                        "said (visuals lag speech), with its on-screen text checked "
+                        "against the words. Repeatable.")
+    p.add_argument("--mark", action="store_true",
+                   help="also save copies of the frames in marked/ with a box around "
+                        "the on-screen lines the speaker is talking about")
+    p.add_argument("--clean-board", action="store_true",
+                   help="also save copies of the frames in clean/ with a presenter who "
+                        "stands in front of a whiteboard removed (uses the next 40 s)")
     p.add_argument("--client", default=None,
                    help="force a single yt-dlp player client instead of the fallback chain")
+    p.add_argument("--lang", default=None, metavar="CODE",
+                   help="the video's spoken language, e.g. hi or es (default: detected)")
+    p.add_argument("--translate", nargs="?", const="en", default=None, metavar="LANG",
+                   help="also write transcript.LANG.txt in another language (default en). "
+                        "Uses the uploader's subtitles, else YouTube's auto-translation")
+    p.add_argument("--stt", action="store_true",
+                   help="transcribe the audio with free speech-to-text even if captions "
+                        "exist (and for local files)")
+    p.add_argument("--stt-engine", choices=["faster-whisper", "whisper.cpp"], default=None,
+                   help="force one speech-to-text engine (default: whichever is installed)")
     return p
 
 
@@ -63,6 +82,12 @@ def main(argv=None):
     if args.max_frames < 1:
         print("--max-frames needs to be at least 1.", file=sys.stderr)
         return 2
+    for name in ("lang", "translate"):
+        value = getattr(args, name)
+        if value is not None and not LANG_RE.fullmatch(value):
+            print(f"--{name} needs a language code such as en, hi, es or zh-Hans.",
+                  file=sys.stderr)
+            return 2
     local = Path(args.source)
     is_local = local.exists() and local.is_file()
 
@@ -77,25 +102,42 @@ def main(argv=None):
     try:
         # ---- Stage 1/2: captions and transcript -------------------------
         if is_local:
-            print("[fetch] local file - skipping captions", flush=True)
+            print("[fetch] local file - no captions to fetch", flush=True)
             video = local
+            if args.stt:
+                _speech_to_text(local, args, {}, out)
+            else:
+                print("[transcript] add --stt to transcribe a local file's audio", flush=True)
         else:
             print("[fetch] captions and metadata", flush=True)
-            caps = fetch.fetch_captions(args.source, work)
+            caps = fetch.fetch_captions(args.source, work, lang=args.lang,
+                                        translate=args.translate)
             info = caps["info"]
             if info.get("title"):
                 print(f"        {info['title']} ({_hms(info.get('duration') or 0)})", flush=True)
 
             _write_metadata(info, out)
 
-            if caps["vtt"]:
-                header = _header(info)
+            if caps["vtt"] and not args.stt:
+                header = _header(info, caps["language"], caps["source"])
                 stats = transcript.write_transcript(caps["vtt"], out / "transcript.txt", header)
-                print(f"[transcript] {stats['lines']} lines, {stats['chars']:,} chars "
-                      f"({stats['ratio']:.0%} of naive parse), "
+                dedup = (f" ({stats['ratio']:.0%} of naive parse)"
+                         if caps["source"] == "captions (auto)" else "")
+                print(f"[transcript] {caps['language']}, {caps['source']}: "
+                      f"{stats['lines']} lines, {stats['chars']:,} chars{dedup}, "
                       f"ends at {_hms(stats['last_timestamp'])}", flush=True)
+                if args.translate:
+                    _write_caption_translation(caps, args.translate, info, out)
             else:
-                print("[transcript] no English captions found for this video", flush=True)
+                if not caps["vtt"]:
+                    print("[transcript] this video has no captions - using speech-to-text",
+                          flush=True)
+                if stt.engines():
+                    clients = [args.client] if args.client else None
+                    audio = fetch.fetch_audio(args.source, work, clients=clients)
+                    _speech_to_text(audio, args, info, out)
+                else:   # say so before downloading audio nothing can use
+                    print("[stt] " + stt.INSTALL_HINT.replace("\n", "\n      "), flush=True)
 
             if args.no_frames:
                 _report(out)
@@ -142,17 +184,7 @@ def main(argv=None):
             frames.write_debug_csv(rows, out / "scores.csv")
             print(f"[frames] wrote {out / 'scores.csv'}", flush=True)
 
-        # A concept is SPOKEN before it is DRAWN, so extract the visual for any
-        # requested timestamp by searching forward, not at the timestamp itself.
-        for stamp in args.at:
-            hit = frames.find_visual(rows, stamp, motion_max=args.motion_max)
-            if hit:
-                print(f"[at {stamp}] visual at {_hms(hit['second'])} "
-                      f"(+{hit['offset']}s, score {hit['score']:.2f})", flush=True)
-                frames.extract(video, [hit["second"]], out / "frames",
-                               width=args.frame_width)
-            else:
-                print(f"[at {stamp}] no still frame found within 2 minutes", flush=True)
+        at_seconds = _at(args, video, scanned, out) if args.at else []
 
         if chosen:
             written = frames.extract(video, [f["second"] for f in chosen],
@@ -162,6 +194,18 @@ def main(argv=None):
         else:
             print("[frames] nothing scored above the threshold. "
                   "Re-run with --debug-scores --threshold 0.15 to see why.", flush=True)
+
+        if args.clean_board:
+            wanted = sorted(set([f["second"] for f in chosen] + at_seconds))
+            print(f"[clean] removing the presenter from {len(wanted)} frames "
+                  f"(median of the next {frames.CLEAN_WINDOW} s)", flush=True)
+            cleaned = frames.clean_board(video, wanted, out / "clean", len(scanned),
+                                         width=args.frame_width)
+            print(f"[clean] wrote {len(cleaned)} frames to clean/ - a smudge can remain where "
+                  f"the presenter stood longest", flush=True)
+
+        if args.mark:
+            _mark(args, [f["second"] for f in chosen] + at_seconds, out)
 
         _report(out)
         return 0
@@ -199,13 +243,70 @@ def _hms(seconds):
     return f"{seconds // 3600}:{(seconds % 3600) // 60:02d}:{seconds % 60:02d}"
 
 
-def _header(info):
+def _header(info, language=None, source=None):
     bits = [f"# {info.get('title') or 'Untitled'}"]
     if info.get("uploader"):
         bits.append(f"Uploader: {info['uploader']}")
     if info.get("duration"):
         bits.append(f"Duration: {_hms(info['duration'])}")
+    if language:
+        bits.append(f"Language: {language}")
+    if source:
+        bits.append(f"Source: {source}")
     return "\n".join(bits)
+
+
+def _same_language(a, b):
+    return bool(a and b) and a.split("-")[0].lower() == b.split("-")[0].lower()
+
+
+def _write_caption_translation(caps, target, info, out):
+    t = caps["translated"]
+    if _same_language(caps["language"], target):
+        print(f"[translate] the video is already in {target}", flush=True)
+    elif t:
+        path = out / f"transcript.{t['lang']}.txt"
+        stats = transcript.write_transcript(t["vtt"], path, _header(info, t["lang"], t["source"]))
+        print(f"[translate] {path.name}: {t['source']}, {stats['lines']} lines", flush=True)
+    else:
+        why = caps.get("translate_error") or "not offered"
+        print(f"[translate] YouTube's {target} track: {why}. YouTube currently refuses most "
+              f"auto-translated captions; uploader-written subtitles still work. Ask Claude to "
+              f"translate transcript.txt - the /youtube-converter skill does this.", flush=True)
+
+
+def _speech_to_text(media, args, info, out):
+    """Transcript from the audio itself, with a free local engine."""
+    if not stt.engines():
+        print("[stt] " + stt.INSTALL_HINT.replace("\n", "\n      "), flush=True)
+        return
+    try:
+        result = stt.transcribe(media, engine=args.stt_engine, language=args.lang)
+    except RuntimeError as exc:
+        print(f"[stt] {exc}", flush=True)
+        return
+    source = f"speech-to-text ({result['engine']}, Whisper {stt.MODEL})"
+    stats = stt.write_transcript(result, out / "transcript.txt",
+                                 _header(info, result["language"], source))
+    print(f"[transcript] {result['language']}, {source}: {stats['lines']} lines, "
+          f"ends at {_hms(stats['last_timestamp'])}", flush=True)
+
+    target = args.translate
+    if not target:
+        return
+    if _same_language(result["language"], target):
+        print(f"[translate] the video is already in {target}", flush=True)
+    elif target.split("-")[0].lower() == "en":
+        print("[translate] translating the speech into English", flush=True)
+        tr = stt.transcribe(media, engine=result["engine"], task="translate",
+                            language=result["language"])
+        stt.write_transcript(tr, out / "transcript.en.txt",
+                             _header(info, "en", f"translated by {tr['engine']}"))
+        print("[translate] transcript.en.txt written", flush=True)
+    else:
+        print(f"[translate] speech-to-text can only translate into English. Ask Claude to "
+              f"translate transcript.txt into {target} - the /youtube-converter skill does "
+              f"this.", flush=True)
 
 
 def _write_metadata(info, out):
@@ -220,6 +321,70 @@ def _write_metadata(info, out):
     }, indent=1))
     if info.get("chapters"):
         print(f"[transcript] {len(info['chapters'])} chapters", flush=True)
+
+
+def _at(args, video, scanned, out):
+    """A concept is SPOKEN before it is DRAWN: take the frame 8 s later (the
+    best of four rules on 45 hand-labelled moments - see match.py), then read
+    its text and say whether it matches what was said."""
+    transcripts = [match.read_transcript(p) for p in sorted(out.glob("transcript*.txt"))]
+    reader = None
+    if ocr.engine():
+        langs = (args.lang or "en",)
+
+        def reader(_video, seconds):
+            got = {}
+            for sec in seconds:
+                path = out / "frames" / f"frame_{frames.seconds_to_stamp(sec)}.jpg"
+                lines = ocr.read([path], languages=langs).get(str(path), [])
+                got[sec] = ocr.text_of(lines)
+            return got
+    else:
+        print("[at] no OCR engine, so the frame's text is not checked "
+              "(free: tesseract on Windows/Linux)", flush=True)
+    results = []
+    for stamp in args.at:
+        t = frames._to_seconds(stamp)
+        pick = match.locate(stamp, scanned[-1]["second"])
+        frames.extract(video, [pick["second"]], out / "frames", width=args.frame_width)
+        hit = match.locate(stamp, scanned[-1]["second"], transcripts, reader, video)
+        if hit["matches"] is True:
+            check = "on-screen text matches: " + ", ".join(hit["words"][:5])
+        elif hit["matches"] is False:
+            check = "on-screen text does NOT match what was said - look a little later"
+        else:
+            check = "text not checked"
+        print(f"[at {stamp}] frame at {_hms(hit['second'])} (+{hit['offset']}s); {check}",
+              flush=True)
+        results.append({"said_at": _hms(t), "frame": f"frame_{frames.seconds_to_stamp(hit['second'])}.jpg",
+                        **{k: hit[k] for k in ("second", "offset", "method", "matches",
+                                               "score", "words", "text")}})
+    (out / "at.json").write_text(json.dumps(results, indent=1, ensure_ascii=False))
+    return [r["second"] for r in results]
+
+
+def _mark(args, seconds, out):
+    if not ocr.engine():
+        print("[mark] no OCR engine, so nothing can be boxed "
+              "(free: tesseract on Windows/Linux, built in on a Mac)", flush=True)
+        return
+    transcripts = [match.read_transcript(p) for p in sorted(out.glob("transcript*.txt"))]
+    if not transcripts:
+        print("[mark] no transcript to match against (add --stt for a local file)", flush=True)
+        return
+    paths = {}
+    for sec in sorted(set(seconds)):
+        path = out / "frames" / f"frame_{frames.seconds_to_stamp(sec)}.jpg"
+        if path.exists():
+            paths[sec] = path
+    results = mark.mark(paths, transcripts, out, languages=(args.lang or "en",))
+    boxed = sum(1 for r in results if r.get("marked"))
+    counts = {k: sum(1 for r in results if r.get("speech") == k)
+              for k in ("on-slide", "no match", "no text")}
+    print(f"[mark] {boxed} of {len(paths)} frames have lines matching the speech "
+          f"-> marked/ (details in marked.json)", flush=True)
+    print(f"[mark] speech vs screen: {counts['on-slide']} on-slide, "
+          f"{counts['no match']} no match, {counts['no text']} no text", flush=True)
 
 
 def _write_frame_index(chosen, out):

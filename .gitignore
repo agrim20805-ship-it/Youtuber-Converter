@@ -21,3 +21,8 @@ output/
 # system
 *.log
 .DS_Store
+
+# test media, models, compiled helpers (never published)
+models/
+testdata/
+.cache/

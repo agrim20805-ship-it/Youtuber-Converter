@@ -8,6 +8,7 @@ The five steps below were measured and are proven. Step 4 is the
 one that does the real work - steps 1-3 alone leave most duplication behind.
 """
 
+import html
 import re
 
 CUE_RE = re.compile(
@@ -18,8 +19,9 @@ TAG_RE = re.compile(r"<[^>]*>")
 
 
 def _clean(text):
-    """Step 2 - strip inline <...> timing tags and collapse whitespace."""
-    return re.sub(r"\s+", " ", TAG_RE.sub("", text)).strip()
+    """Step 2 - strip inline <...> timing tags, decode HTML entities (human
+    subtitles carry &nbsp; and &amp;), and collapse whitespace."""
+    return re.sub(r"\s+", " ", html.unescape(TAG_RE.sub("", text))).strip()
 
 
 def _stamp(seconds, long_form):
