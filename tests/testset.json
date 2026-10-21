@@ -1,0 +1,71 @@
+{
+ "note": "Test videos for tests/score.py. Media is never stored in the repo: build_testset.py downloads it. Labels in tests/labels/ were made by a person looking at each frame.",
+ "videos": [
+  {
+   "key": "slides",
+   "style": "light slides, presenter cut-ins",
+   "language": "en",
+   "source": "https://www.youtube.com/watch?v=bgqTkGKTsWE",
+   "answer_key": "human English subtitles"
+  },
+  {
+   "key": "screen",
+   "style": "dark screen recording",
+   "language": "en",
+   "source": "https://www.youtube.com/watch?v=jqoFP9QapXI",
+   "answer_key": null
+  },
+  {
+   "key": "whiteboard",
+   "style": "whiteboard, handwriting",
+   "language": "en",
+   "source": "https://www.youtube.com/watch?v=nPp5jRGWz_A",
+   "answer_key": null
+  },
+  {
+   "key": "tablet",
+   "style": "tablet drawing, no presenter",
+   "language": "en",
+   "source": "https://www.youtube.com/watch?v=N2PpRnFqnqY",
+   "answer_key": "human English subtitles"
+  },
+  {
+   "key": "hindi",
+   "style": "Hindi speech, English slides and writing, presenter",
+   "language": "hi",
+   "source": "https://www.youtube.com/watch?v=3EJlovevfcA",
+   "answer_key": "human English subtitles"
+  },
+  {
+   "key": "gameplay",
+   "style": "gameplay Short, fast motion",
+   "language": "en",
+   "source": "local",
+   "answer_key": null
+  },
+  {
+   "key": "voiceslides",
+   "style": "voice-over slides, no presenter",
+   "language": "en",
+   "purpose": "at",
+   "source": "https://www.youtube.com/watch?v=R9PTBwOzceo",
+   "answer_key": "human English subtitles"
+  },
+  {
+   "key": "code",
+   "style": "code screencast (light editor)",
+   "language": "en",
+   "purpose": "at",
+   "source": "https://www.youtube.com/watch?v=ZDa-Z5JzLYM",
+   "answer_key": "human English subtitles"
+  },
+  {
+   "key": "hinditree",
+   "style": "Hindi speech, English board writing, presenter",
+   "language": "hi",
+   "purpose": "at",
+   "source": "https://www.youtube.com/watch?v=E9DOBLNB-aE",
+   "answer_key": "human English subtitles"
+  }
+ ]
+}

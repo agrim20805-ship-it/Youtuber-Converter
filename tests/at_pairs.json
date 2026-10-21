@@ -1,0 +1,202 @@
+{
+ "note": "Spoken moments for scoring --at. Chosen from the transcripts where something is introduced; a person then marks the second its visual first appears clearly (or 'not shown'). The two slides pairs at 06:29 and 14:36 are the long-standing known answers (08:04 and 14:40). Pairs marked \"set\": \"fresh\" were chosen from the transcripts alone, after the new --at rule was fixed, so they measure it honestly.",
+ "window": 120,
+ "step": 4,
+ "pairs": [
+  {
+   "video": "slides",
+   "at": "02:59"
+  },
+  {
+   "video": "slides",
+   "at": "06:29"
+  },
+  {
+   "video": "slides",
+   "at": "07:16"
+  },
+  {
+   "video": "slides",
+   "at": "08:58"
+  },
+  {
+   "video": "slides",
+   "at": "14:36"
+  },
+  {
+   "video": "slides",
+   "at": "16:57"
+  },
+  {
+   "video": "screen",
+   "at": "01:34"
+  },
+  {
+   "video": "screen",
+   "at": "04:20"
+  },
+  {
+   "video": "screen",
+   "at": "08:06"
+  },
+  {
+   "video": "screen",
+   "at": "09:46"
+  },
+  {
+   "video": "screen",
+   "at": "11:34"
+  },
+  {
+   "video": "screen",
+   "at": "15:31"
+  },
+  {
+   "video": "whiteboard",
+   "at": "00:05"
+  },
+  {
+   "video": "whiteboard",
+   "at": "00:30"
+  },
+  {
+   "video": "whiteboard",
+   "at": "01:24"
+  },
+  {
+   "video": "whiteboard",
+   "at": "02:58"
+  },
+  {
+   "video": "whiteboard",
+   "at": "04:00"
+  },
+  {
+   "video": "whiteboard",
+   "at": "05:02"
+  },
+  {
+   "video": "tablet",
+   "at": "00:54"
+  },
+  {
+   "video": "tablet",
+   "at": "01:48"
+  },
+  {
+   "video": "tablet",
+   "at": "02:42"
+  },
+  {
+   "video": "tablet",
+   "at": "03:12"
+  },
+  {
+   "video": "tablet",
+   "at": "04:08"
+  },
+  {
+   "video": "tablet",
+   "at": "05:20"
+  },
+  {
+   "video": "hindi",
+   "at": "01:17"
+  },
+  {
+   "video": "hindi",
+   "at": "02:04"
+  },
+  {
+   "video": "hindi",
+   "at": "03:04"
+  },
+  {
+   "video": "hindi",
+   "at": "07:15"
+  },
+  {
+   "video": "hindi",
+   "at": "08:15"
+  },
+  {
+   "video": "hindi",
+   "at": "09:15"
+  },
+  {
+   "video": "voiceslides",
+   "at": "00:52",
+   "set": "fresh"
+  },
+  {
+   "video": "voiceslides",
+   "at": "01:45",
+   "set": "fresh"
+  },
+  {
+   "video": "voiceslides",
+   "at": "02:19",
+   "set": "fresh"
+  },
+  {
+   "video": "voiceslides",
+   "at": "02:46",
+   "set": "fresh"
+  },
+  {
+   "video": "voiceslides",
+   "at": "05:14",
+   "set": "fresh"
+  },
+  {
+   "video": "code",
+   "at": "01:38",
+   "set": "fresh"
+  },
+  {
+   "video": "code",
+   "at": "05:14",
+   "set": "fresh"
+  },
+  {
+   "video": "code",
+   "at": "09:42",
+   "set": "fresh"
+  },
+  {
+   "video": "code",
+   "at": "12:00",
+   "set": "fresh"
+  },
+  {
+   "video": "code",
+   "at": "12:41",
+   "set": "fresh"
+  },
+  {
+   "video": "hinditree",
+   "at": "01:52",
+   "set": "fresh"
+  },
+  {
+   "video": "hinditree",
+   "at": "03:17",
+   "set": "fresh"
+  },
+  {
+   "video": "hinditree",
+   "at": "05:05",
+   "set": "fresh"
+  },
+  {
+   "video": "hinditree",
+   "at": "06:34",
+   "set": "fresh"
+  },
+  {
+   "video": "hinditree",
+   "at": "07:17",
+   "set": "fresh"
+  }
+ ]
+}
