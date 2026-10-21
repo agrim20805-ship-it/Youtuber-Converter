@@ -13,7 +13,8 @@ diagrams). For gameplay and other fast footage, use
 
 **[▶ Watch the 30-second demo](https://www.youtube.com/shorts/72ZZiSuqWXU)**
 
-**Contents:** [Requirements](#requirements) · [Setup](#setup) · [Use](#use) ·
+**Contents:** [Requirements](#requirements) · [Setup](#setup) ·
+[Without uv (pip)](#without-uv-pip) · [Use](#use) ·
 [The timestamp gap](#the-timestamp-gap) · [Useful flags](#useful-flags) ·
 [How many frames](#choosing-how-many-frames) ·
 [Gameplay](#gameplay-and-fast-footage) ·
@@ -28,6 +29,9 @@ The three tools it needs are free. On a Mac, install them with
 ```bash
 brew install yt-dlp ffmpeg uv
 ```
+
+`uv` is optional - it only sets up Python for you. To use pip instead, see
+[Without uv (pip)](#without-uv-pip).
 
 **Why Homebrew's yt-dlp.** YouTube now sends a small JavaScript puzzle before
 it serves a video. Homebrew's yt-dlp comes with the solver for
@@ -68,11 +72,49 @@ uv sync
 No Python packages are installed - the dependency list is empty. Everything
 else is done by `yt-dlp` and `ffmpeg`.
 
+### Without uv (pip)
+
+The tool itself is plain Python with nothing to install, so uv is only a
+convenience. With pip instead, you need **Python 3.10 or newer** (check with
+`python3 --version`; get it from [python.org](https://www.python.org/downloads/)
+if yours is older) and `ffmpeg` installed separately (`brew install ffmpeg` on
+a Mac, or [ffmpeg.org](https://ffmpeg.org/download.html)).
+
+From the project folder, once:
+
+```bash
+python3 -m venv .venv
+```
+
+```bash
+source .venv/bin/activate
+```
+
+```bash
+pip install "yt-dlp[default,deno]"
+```
+
+The first command makes a private Python folder, the second switches it on (on
+Windows: `.venv\Scripts\activate`), and the third installs yt-dlp into it. The
+`[default,deno]` part matters: it also installs the solver for YouTube's
+JavaScript puzzle and Deno to run it (see Requirements).
+
+Then, in every command in this README, replace `uv run python` with `python`:
+
+```bash
+python -m ytconv "https://www.youtube.com/watch?v=VIDEO_ID"
+```
+
+In a new terminal window, run `source .venv/bin/activate` again first - that
+is what lets the tool find the yt-dlp you installed.
+
 ## Use
 
 ```bash
 uv run python -m ytconv "https://www.youtube.com/watch?v=VIDEO_ID"
 ```
+
+(With the pip setup: `python -m ytconv "URL"`, after activating `.venv`.)
 
 Output lands in `output/<video_id>/`:
 
@@ -177,6 +219,8 @@ cd Youtuber-Converter
 ```bash
 uv sync
 ```
+
+(No uv? Do the three [pip setup](#without-uv-pip) commands here instead.)
 
 ```bash
 mkdir -p ~/.claude/skills

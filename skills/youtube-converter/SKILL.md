@@ -47,11 +47,24 @@ quoting bug.
 command -v yt-dlp ffmpeg uv
 ```
 
-All three must print a path. If one is missing, tell the user and point them to
-the README's Requirements section. Do not install anything without asking.
+`yt-dlp` and `ffmpeg` must print a path. If one is missing, tell the user and
+point them to the README's Requirements section. Do not install anything
+without asking.
 
-If `PROJECT/.venv` is missing, `uv sync` (run in `PROJECT`) creates it. No
-Python packages are installed - the dependency list is empty.
+If `uv` is there and `PROJECT/.venv` is missing, `uv sync` (run in `PROJECT`)
+creates it. No Python packages are installed - the dependency list is empty.
+
+**No uv?** The user may have set up with pip instead (README, "Without uv").
+Then `PROJECT/.venv` holds their yt-dlp, and every `uv run python -m ytconv ...`
+below becomes:
+
+```bash
+source .venv/bin/activate && python -m ytconv ...
+```
+
+Activating matters: it is how the tool finds the pip-installed yt-dlp. If
+there is no uv and no `.venv`, point the user to the README's pip setup rather
+than installing anything.
 
 ## Step 3 - Transcript first
 
