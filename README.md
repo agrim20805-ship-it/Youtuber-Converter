@@ -4,9 +4,10 @@ Turns a YouTube URL into a readable transcript and a folder of frames that are
 almost all worth looking at.
 
 Built for lectures, but it works on any video with captions - gaming clips,
-tutorials, references for Claude. The transcript works on all of them. Frames
-are picked where the screen holds still (slides, code, diagrams), so
-fast-moving footage like gameplay gives the transcript and only a few frames.
+tutorials, references for Claude. The transcript works on all of them. By
+default, frames are picked where the screen holds still (slides, code,
+diagrams). For gameplay and other fast footage, use
+[`--gameplay`](#gameplay-and-fast-footage) instead.
 
 <a href="https://www.youtube.com/shorts/72ZZiSuqWXU"><img src="https://img.youtube.com/vi/72ZZiSuqWXU/maxresdefault.jpg" alt="Watch the 30-second demo on YouTube" width="480"></a>
 
@@ -15,6 +16,7 @@ fast-moving footage like gameplay gives the transcript and only a few frames.
 **Contents:** [Requirements](#requirements) · [Setup](#setup) · [Use](#use) ·
 [The timestamp gap](#the-timestamp-gap) · [Useful flags](#useful-flags) ·
 [How many frames](#choosing-how-many-frames) ·
+[Gameplay](#gameplay-and-fast-footage) ·
 [Claude Code skill](#use-it-with-claude-code) · [Ears](#experimental-ears) ·
 [Just ask Claude](#or-just-ask-claude) · [Disclaimer](#disclaimer)
 
@@ -110,6 +112,9 @@ This is opt-in. A plain run never forward-searches.
 - `--debug-scores` - also write `scores.csv` to see why each second was kept or dropped
 - `--threshold 0.3` - loosen frame selection if too little is coming through
 - `--max-frames 50` - cap on frames kept
+- `--gameplay` - for games, sport and action: keep the sharpest moments instead of the still ones
+- `--every 5` - no filtering, one frame every 5 seconds
+- `--motion-max 4.5` - let more movement through the stillness check (default 1.0)
 - `--client mweb` - force one yt-dlp player client instead of the fallback chain
 
 ### Choosing how many frames
@@ -123,11 +128,34 @@ batch leaves less room for everything else.
 uv run python -m ytconv "URL" --max-frames 60 --threshold 0.3
 ```
 
-`--max-frames` is a limit, not a target (the default is 35). The tool only
-keeps frames where the screen holds still, and skips repeats of the same slide,
+`--max-frames` is a limit, not a target (the default is 35). By default the
+tool only keeps frames where the screen holds still, and skips repeats of the same slide,
 so to get more frames, raise the limit **and** loosen `--threshold` (default
 0.5, lower keeps more). For fewer, cheaper frames, lower the limit:
 `--max-frames 10`.
+
+### Gameplay and fast footage
+
+The default mode throws away any second where the picture is moving, because in
+a lecture, movement is almost always the presenter. In a game clip, the moving
+moments are the point, so the default can miss exactly what you want. Three
+ways round it, from smallest change to biggest:
+
+| Flag | What it keeps | Good for |
+|---|---|---|
+| `--motion-max 4.5` | Same rules, but lets more movement through (default 1.0) | Shaky camera, a presenter beside the slides, Shorts |
+| `--gameplay` | The sharpest second from every 3 seconds, plus any big scene change in between. Ignores stillness | Gaming clips, sport, action |
+| `--every 5` | One frame every 5 seconds, nothing filtered | When you want everything, repeats included |
+
+```bash
+uv run python -m ytconv "URL" --gameplay
+```
+
+"Sharpest" means the most edges on screen. Motion blur smears edges away, so
+the sharpest second in a window is usually the clearest one. `--max-frames`
+still applies to all three. With `--every`, if the interval would need more
+frames than the limit, it is widened so the frames still cover the whole video,
+and the tool says so.
 
 ## Use it with Claude Code
 
@@ -206,6 +234,7 @@ commands for you. For example:
 - "Just get me the transcript of this one."
 - "What's on screen at 06:29?"
 - "Get me more frames - around 60."
+- "This is a gaming clip - get me the frames that matter."
 - "What sound effects can you hear in this Short?" (experimental)
 
 ## Disclaimer

@@ -29,6 +29,15 @@ def build_parser():
                    help=f"frame score threshold (default {frames.DEFAULT_THRESHOLD})")
     p.add_argument("--max-frames", type=int, default=35,
                    help="maximum frames to keep (default 35)")
+    p.add_argument("--motion-max", type=float, default=frames.MOTION_MAX,
+                   help=f"seconds moving more than this are skipped as footage "
+                        f"(default {frames.MOTION_MAX}; raise it for shaky or busy video)")
+    mode = p.add_mutually_exclusive_group()
+    mode.add_argument("--gameplay", action="store_true",
+                      help="for games, sport and action: ignore stillness, keep the sharpest "
+                           f"frame every {frames.GAMEPLAY_WINDOW}s plus big scene changes")
+    mode.add_argument("--every", type=float, default=None, metavar="SECONDS",
+                      help="no filtering: one frame every SECONDS seconds")
     p.add_argument("--frame-width", type=int, default=None,
                    help="downscale frames to this width (default: keep source 1080p)")
     p.add_argument("--debug-scores", action="store_true",
@@ -47,6 +56,12 @@ def main(argv=None):
         # yt-dlp would read it as one of its own options (--exec runs commands).
         print("The source must be a URL or a file path, not something starting "
               "with '-'.", file=sys.stderr)
+        return 2
+    if args.every is not None and args.every <= 0:
+        print("--every needs a number of seconds above 0.", file=sys.stderr)
+        return 2
+    if args.max_frames < 1:
+        print("--max-frames needs to be at least 1.", file=sys.stderr)
         return 2
     local = Path(args.source)
     is_local = local.exists() and local.is_file()
@@ -103,10 +118,22 @@ def main(argv=None):
                 args.frame_width = 1280
         print("[frames] scanning one frame per second", flush=True)
         scanned = frames.scan(video)
-        chosen, rows, meta = frames.select(
-            scanned, threshold=args.threshold, max_frames=args.max_frames)
-        print(f"[frames] {len(scanned)}s scanned, {meta['polarity']}-background video "
-              f"(median luminance {meta['median_lum']}), "
+        if args.gameplay:
+            chosen, rows, meta = frames.select_gameplay(scanned, max_frames=args.max_frames)
+            label = "gameplay mode"
+        elif args.every is not None:
+            chosen, rows, meta = frames.select_interval(
+                scanned, args.every, max_frames=args.max_frames)
+            label = f"one frame every {meta['step']:g}s"
+            if meta["step"] > args.every:
+                print(f"[frames] every {args.every:g}s would be more than --max-frames "
+                      f"{args.max_frames}; widened to every {meta['step']:g}s", flush=True)
+        else:
+            chosen, rows, meta = frames.select(
+                scanned, threshold=args.threshold, max_frames=args.max_frames,
+                motion_max=args.motion_max)
+            label = f"{meta['polarity']}-background video (median luminance {meta['median_lum']})"
+        print(f"[frames] {len(scanned)}s scanned, {label}, "
               f"{meta['candidates']} candidates, {len(chosen)} kept", flush=True)
 
         # Always written: later stages search this instead of re-scanning.
@@ -118,7 +145,7 @@ def main(argv=None):
         # A concept is SPOKEN before it is DRAWN, so extract the visual for any
         # requested timestamp by searching forward, not at the timestamp itself.
         for stamp in args.at:
-            hit = frames.find_visual(rows, stamp)
+            hit = frames.find_visual(rows, stamp, motion_max=args.motion_max)
             if hit:
                 print(f"[at {stamp}] visual at {_hms(hit['second'])} "
                       f"(+{hit['offset']}s, score {hit['score']:.2f})", flush=True)

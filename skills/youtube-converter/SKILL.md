@@ -88,6 +88,20 @@ and upscales - upscaling adds no real detail.
 **Do not open the whole `frames/` folder.** Use the transcript and chapters to
 decide which moments matter, then look at just those frames.
 
+**Pick the frame mode from what the video is.** The default keeps only
+seconds where the screen holds still - right for lectures, slides, code and
+screen recordings, wrong for fast footage, where the moving moments are the
+content:
+
+- Gameplay, sport, action, most Shorts: add `--gameplay` (sharpest second
+  every 3 seconds plus big scene changes; stillness ignored).
+- A lecture with a shaky camera or a presenter beside the slides:
+  `--motion-max 4.5` keeps the normal rules but lets more movement through.
+- The user wants everything, repeats included: `--every N` (one frame every
+  N seconds, no filtering).
+
+If you are unsure what the video is, the title and transcript usually say.
+
 ## Step 5 - "What's on screen at MM:SS?"
 
 **A concept is spoken before it is drawn.** In one measured lecture a graph is
@@ -145,6 +159,10 @@ Report what you hear with timestamps, and say how sure you are.
 - `--max-frames 50` - cap on frames kept. Default is 35.
 - `--keep-video`, `--work-dir DIR` - keep the downloaded video
   (as `DIR/video.mp4`) instead of deleting it.
+- `--gameplay` - fast footage: sharpest frames instead of still ones.
+- `--every N` - one frame every N seconds, no filtering. Cannot be combined
+  with `--gameplay`.
+- `--motion-max N` - raise the stillness limit (default 1.0).
 - `--client NAME` - force one yt-dlp player client instead of the fallback
   chain.
 
@@ -171,22 +189,12 @@ Re-run with `--debug-scores` and read `scores.csv`. The usual causes, in order:
    never holds still, so nothing passes the motion gate.
    **Vertical Shorts are the extreme case** - a talking head composited beside
    the diagram means no second is ever still, and every frame drops. Measured
-   motion on such a short was 2.2-5.2 against a gate of 1.0. The gate is not a
-   command-line flag; re-run with `--work-dir DIR`, then from `PROJECT`:
-
-   ```bash
-   uv run python -c "
-   from ytconv import frames
-   video = 'DIR/video.mp4'
-   chosen, rows, meta = frames.select(frames.scan(video), threshold=1.05,
-                                      max_frames=6, min_gap=4, motion_max=4.5)
-   print(frames.extract(video, [f['second'] for f in chosen], 'OUTDIR/frames'))
-   "
-   ```
+   motion on such a short was 2.2-5.2 against a gate of 1.0. Re-run with
+   `--motion-max 4.5` (add `--threshold 0.3` if still too few come through).
+   If the video is gameplay or action rather than slides, use `--gameplay`
+   instead - there, the moving seconds are the ones worth keeping.
 
    Do not change the 1.0 default - it is right for lecture screencasts.
-   `frame-scores.json` cannot be fed back into `select`; it lacks the
-   thumbnail data the duplicate-slide check needs, so scan the video again.
 2. **Everything "below threshold".** Low-contrast material - pencil on paper,
    a dim whiteboard. Try `--threshold 0.3`.
 3. **Faces getting through.** The presenter sat still. Expected at a low rate,

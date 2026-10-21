@@ -44,6 +44,11 @@ TEXTURE_FLOOR = 0.30      # essentially nothing on screen
 DEDUP_DISTANCE = 6.0      # mean luminance difference below this = the same slide
 MIN_GAP_SECONDS = 5
 
+# Gameplay mode. Measured on a 13 s gameplay Short: a cut or a big on-screen
+# change moved the thumbnail 12-85 between seconds; continuous footage 1-8.
+GAMEPLAY_WINDOW = 3       # keep the sharpest second from each window this long
+CHANGE_DISTANCE = 15.0    # a jump this big from the previous second = new scene
+
 
 def scan(video):
     """Measure every second of the video. Two cheap ffmpeg passes."""
@@ -184,7 +189,93 @@ def select(frames, threshold=DEFAULT_THRESHOLD, max_frames=35,
             chosen.append(f)
             last_kept = f
 
-    rows = [{
+    rows = _rows(frames, debug)
+    meta = {"polarity": polarity, "median_lum": round(med_lum, 1),
+            "median_texture": round(med_tex, 3), "candidates": len(candidates)}
+    return chosen, rows, meta
+
+
+def select_gameplay(frames, max_frames=35, window=GAMEPLAY_WINDOW):
+    """For fast footage - games, sport, action - where the moving moments ARE
+    the content. Stillness is ignored. Keeps the sharpest second in each window
+    (texture doubles as sharpness: motion blur wipes out edges), plus the second
+    after any big scene change that no kept frame already shows.
+    """
+    med_tex = median(f["texture"] for f in frames) or 1e-6
+    med_lum = median(f["mean_lum"] for f in frames)
+    debug = {}
+    candidates = []
+    for f in frames:
+        f["score"] = f["texture"] / med_tex
+        if f["mean_lum"] < DARK_FLOOR:
+            debug[f["second"]] = "drop: near-black"
+        elif f["mean_lum"] > BRIGHT_CEILING:
+            debug[f["second"]] = "drop: near-white"
+        elif f["texture"] < TEXTURE_FLOOR:
+            debug[f["second"]] = "drop: blank"
+        else:
+            debug[f["second"]] = "not sharpest in window"
+            candidates.append(f)
+
+    duration = frames[-1]["second"] + 1
+    bucket = max(window, duration / max_frames)
+    best = {}
+    for f in candidates:
+        key = int(f["second"] / bucket)
+        if key not in best or f["score"] > best[key]["score"]:
+            best[key] = f
+    kept = {f["second"]: f for f in best.values()}
+    for sec in kept:
+        debug[sec] = "KEEP: sharpest in window"
+
+    # Scene changes the window pick missed: a cut to something new between picks.
+    by_second = {f["second"]: f for f in candidates}
+    for prev, f in zip(frames, frames[1:]):
+        if f["second"] not in by_second or _distance(f["lum"], prev["lum"]) < CHANGE_DISTANCE:
+            continue
+        nearest = min(kept.values(), key=lambda k: abs(k["second"] - f["second"]), default=None)
+        if nearest and (abs(nearest["second"] - f["second"]) < 2
+                        or _distance(f["lum"], nearest["lum"]) < CHANGE_DISTANCE):
+            continue          # already shown by a kept frame
+        kept[f["second"]] = f
+        debug[f["second"]] = "KEEP: scene change"
+
+    chosen = sorted(kept.values(), key=lambda x: x["second"])
+    if len(chosen) > max_frames:
+        top = sorted(chosen, key=lambda x: x["score"], reverse=True)[:max_frames]
+        for f in chosen:
+            if f not in top:
+                debug[f["second"]] = "drop: over --max-frames"
+        chosen = sorted(top, key=lambda x: x["second"])
+
+    meta = {"polarity": "light" if med_lum > 127 else "dark",
+            "median_lum": round(med_lum, 1), "median_texture": round(med_tex, 3),
+            "candidates": len(candidates)}
+    return chosen, _rows(frames, debug), meta
+
+
+def select_interval(frames, every, max_frames=35):
+    """One frame every `every` seconds, no filtering at all. Catches everything,
+    including the presenter's face and near-identical repeats. If that is more
+    than max_frames, the step widens so the frames still span the whole video."""
+    med_tex = median(f["texture"] for f in frames) or 1e-6
+    med_lum = median(f["mean_lum"] for f in frames)
+    for f in frames:
+        f["score"] = f["texture"] / med_tex
+    duration = frames[-1]["second"] + 1
+    step = max(every, duration / max_frames)
+    wanted = {int(i * step) for i in range(max_frames) if i * step < duration}
+    debug = {f["second"]: "KEEP: interval" if f["second"] in wanted else "between intervals"
+             for f in frames}
+    chosen = [f for f in frames if f["second"] in wanted]
+    meta = {"polarity": "light" if med_lum > 127 else "dark",
+            "median_lum": round(med_lum, 1), "median_texture": round(med_tex, 3),
+            "candidates": len(frames), "step": round(step, 2)}
+    return chosen, _rows(frames, debug), meta
+
+
+def _rows(frames, debug):
+    return [{
         "second": f["second"],
         "mean_lum": round(f["mean_lum"], 2),
         "texture": round(f["texture"], 3),
@@ -193,10 +284,6 @@ def select(frames, threshold=DEFAULT_THRESHOLD, max_frames=35,
         "score": round(f["score"], 3),
         "decision": debug[f["second"]],
     } for f in frames]
-
-    meta = {"polarity": polarity, "median_lum": round(med_lum, 1),
-            "median_texture": round(med_tex, 3), "candidates": len(candidates)}
-    return chosen, rows, meta
 
 
 def _distance(a, b):
