@@ -45,10 +45,14 @@ def modes(scan, key=None, max_same=0):
     out["gameplay"] = frames.select_gameplay(scan)[0]
     out["every"] = frames.select_interval(scan, every=10)[0]
     out = {name: [f["second"] for f in chosen] for name, chosen in out.items()}
+    # what the tool does with no mode flags: frames.detect_mode picks one
+    picked = frames.detect_mode(scan)[0]
+    out["auto"] = out[{"default": "default", "board": "motion4.5", "gameplay": "gameplay"}[picked]]
     if key and max_same:
         cache = repeats_cache(key)
         med_lum = median(f["mean_lum"] for f in scan)
-        for name in ("default", "motion4.5"):
+        capped = ["default", "motion4.5"] + (["auto"] if picked != "gameplay" else [])
+        for name in capped:
             if cache and all(s in cache["pics"] for s in out[name]):
                 out[name] = repeats.cap(out[name], cache["pics"], cache["texts"],
                                         med_lum, keep=max_same)[0]

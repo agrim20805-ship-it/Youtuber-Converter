@@ -29,11 +29,13 @@ def build_parser():
                    help="transcript only - skips the video download entirely")
     p.add_argument("--threshold", type=float, default=frames.DEFAULT_THRESHOLD,
                    help=f"frame score threshold (default {frames.DEFAULT_THRESHOLD})")
-    p.add_argument("--max-frames", type=int, default=35,
-                   help="maximum frames to keep (default 35)")
-    p.add_argument("--motion-max", type=float, default=frames.MOTION_MAX,
+    p.add_argument("--max-frames", type=int, default=None,
+                   help=f"maximum frames to keep (default {frames.MIN_FRAMES}, or one per "
+                        f"{frames.SECONDS_PER_FRAME} s on longer videos; 35 for --gameplay/--every)")
+    p.add_argument("--motion-max", type=float, default=None,
                    help=f"seconds moving more than this are skipped as footage "
-                        f"(default {frames.MOTION_MAX}; raise it for shaky or busy video)")
+                        f"({frames.MOTION_MAX} for slides, {frames.BOARD_MOTION_MAX} for a "
+                        f"presenter at a board). Giving it turns off the automatic mode choice")
     mode = p.add_mutually_exclusive_group()
     mode.add_argument("--gameplay", action="store_true",
                       help="for games, sport and action: ignore stillness, keep the sharpest "
@@ -69,10 +71,37 @@ def build_parser():
                         "exist (and for local files)")
     p.add_argument("--stt-engine", choices=["faster-whisper", "whisper.cpp"], default=None,
                    help="force one speech-to-text engine (default: whichever is installed)")
+    p.add_argument("--no-stt", action="store_true",
+                   help="local files: do not transcribe the audio (a subtitle file next "
+                        "to the video is still used)")
+    p.add_argument("--notes", action="store_true",
+                   help="also write notes.html and notes.md: the transcript by chapter with "
+                        "each frame beside what was said and every timestamp linked to the video")
     return p
 
 
+def _console_safe():
+    """Never crash on printing. A Windows console is often cp1252, which cannot
+    show Hindi, Japanese or emoji in a video title: print '?' instead of raising."""
+    for stream in (sys.stdout, sys.stderr):
+        try:
+            stream.reconfigure(errors="replace")
+        except (AttributeError, ValueError):
+            pass   # not a normal text stream (e.g. captured by a test)
+
+
+def _missing_tools(is_local, no_frames):
+    """Programs the run needs that are not on PATH (shutil.which also finds .exe)."""
+    need = []
+    if not is_local:
+        need.append("yt-dlp")
+    if is_local or not no_frames:
+        need += ["ffmpeg", "ffprobe"]
+    return [t for t in need if not shutil.which(t)]
+
+
 def main(argv=None):
+    _console_safe()
     args = build_parser().parse_args(argv)
     if args.source.startswith("-"):
         # yt-dlp would read it as one of its own options (--exec runs commands).
@@ -82,7 +111,7 @@ def main(argv=None):
     if args.every is not None and args.every <= 0:
         print("--every needs a number of seconds above 0.", file=sys.stderr)
         return 2
-    if args.max_frames < 1:
+    if args.max_frames is not None and args.max_frames < 1:
         print("--max-frames needs to be at least 1.", file=sys.stderr)
         return 2
     for name in ("lang", "translate"):
@@ -92,7 +121,17 @@ def main(argv=None):
                   file=sys.stderr)
             return 2
     local = Path(args.source)
-    is_local = local.exists() and local.is_file()
+    try:
+        is_local = local.exists() and local.is_file()
+    except (OSError, ValueError):   # a URL is not a valid file name on Windows
+        is_local = False
+
+    missing = _missing_tools(is_local, args.no_frames)
+    if missing:
+        print("Missing program(s): " + ", ".join(missing) + ". Install them and make "
+              "sure they are on your PATH (open a NEW terminal after installing); "
+              "see the README, Requirements.", file=sys.stderr)
+        return 2
 
     out = Path(args.out) if args.out else Path("output") / _slug(args.source, is_local)
     out.mkdir(parents=True, exist_ok=True)
@@ -105,12 +144,8 @@ def main(argv=None):
     try:
         # ---- Stage 1/2: captions and transcript -------------------------
         if is_local:
-            print("[fetch] local file - no captions to fetch", flush=True)
             video = local
-            if args.stt:
-                _speech_to_text(local, args, {}, out)
-            else:
-                print("[transcript] add --stt to transcribe a local file's audio", flush=True)
+            _local_transcript(local, args, out)
         else:
             print("[fetch] captions and metadata", flush=True)
             caps = fetch.fetch_captions(args.source, work, lang=args.lang,
@@ -143,6 +178,7 @@ def main(argv=None):
                     print("[stt] " + stt.INSTALL_HINT.replace("\n", "\n      "), flush=True)
 
             if args.no_frames:
+                _notes(args, out, is_local)
                 _report(out)
                 return 0
 
@@ -150,6 +186,7 @@ def main(argv=None):
             video = fetch.fetch_video(args.source, work, clients=clients)
 
         if args.no_frames:
+            _notes(args, out, is_local)
             _report(out)
             return 0
 
@@ -163,6 +200,18 @@ def main(argv=None):
                 args.frame_width = 1280
         print("[frames] scanning one frame per second", flush=True)
         scanned = frames.scan(video)
+        if not args.gameplay and args.every is None and args.motion_max is None:
+            picked, why = frames.detect_mode(scanned)   # no mode given: choose one
+            print(f"[frames] mode: {picked} - {why}. Choose yourself with --gameplay "
+                  f"or --motion-max N", flush=True)
+            args.gameplay = picked == "gameplay"
+            args.motion_max = (frames.BOARD_MOTION_MAX if picked == "board"
+                               else frames.MOTION_MAX)
+        elif args.motion_max is None:
+            args.motion_max = frames.MOTION_MAX
+        if args.max_frames is None:   # picker: grows with length; other modes: 35
+            args.max_frames = (frames.MIN_FRAMES if args.gameplay or args.every is not None
+                               else frames.auto_max_frames(len(scanned)))
         if args.gameplay:
             chosen, rows, meta = frames.select_gameplay(scanned, max_frames=args.max_frames)
             label = "gameplay mode"
@@ -213,6 +262,7 @@ def main(argv=None):
         if args.mark:
             _mark(args, [f["second"] for f in chosen] + at_seconds, out)
 
+        _notes(args, out, is_local)
         _report(out)
         return 0
 
@@ -315,10 +365,53 @@ def _speech_to_text(media, args, info, out):
               f"this.", flush=True)
 
 
+def _local_transcript(local, args, out):
+    """Transcript for a local video: a subtitle file next to it (video.srt,
+    video.vtt, video.en.srt ...), else free speech-to-text if an engine is
+    installed. --stt forces speech-to-text; --no-stt forbids it."""
+    info = {"title": local.name}
+    side = None if args.stt else transcript.find_sidecar(local, args.lang)
+    if side:
+        path, lang = side
+        print(f"[fetch] local file - using the subtitle file {path.name}", flush=True)
+        header = _header(info, lang or args.lang, f"subtitle file ({path.name})")
+        stats = transcript.write_transcript(path, out / "transcript.txt", header)
+        print(f"[transcript] subtitle file {path.name}: {stats['lines']} lines, "
+              f"{stats['chars']:,} chars, ends at {_hms(stats['last_timestamp'])}", flush=True)
+        if args.translate:
+            print("[translate] not available for a subtitle file; ask Claude to translate "
+                  "transcript.txt - the /youtube-converter skill does this.", flush=True)
+        return
+    print("[fetch] local file - " + ("--stt given, so any subtitle file is ignored" if args.stt
+          else "no captions to fetch, no subtitle file next to it"), flush=True)
+    if args.no_stt and not args.stt:
+        print("[transcript] --no-stt: not transcribing; frames only", flush=True)
+        return
+    found = stt.engines()
+    if not found:
+        print("[stt] " + stt.INSTALL_HINT.replace("\n", "\n      "), flush=True)
+        print("[transcript] none made; carrying on with frames only", flush=True)
+        return
+    engine = args.stt_engine if args.stt_engine in found else found[0]
+    seconds = stt.media_duration(local)
+    info["duration"] = seconds or None
+    if seconds:
+        est = seconds / stt.SPEED[engine]
+        how_long = f"about {round(est / 5) * 5 or 5} s" if est < 90 else f"about {round(est / 60)} min"
+        eta = f"{how_long} (audio is {_hms(seconds)}, ~{stt.SPEED[engine]:g}x real time)"
+    else:
+        eta = "this can take a while"
+    print(f"[transcript] transcribing the audio with {engine}: {eta}. "
+          f"--no-stt skips this.", flush=True)
+    _speech_to_text(local, args, info, out)
+
+
 def _write_metadata(info, out):
     """title, uploader, duration, chapters - chapters are the cheapest outline
     of a video available, so they are kept even though nothing uses them yet."""
     (out / "metadata.json").write_text(json.dumps({
+        "id": info.get("id"),
+        "url": info.get("webpage_url"),
         "title": info.get("title"),
         "uploader": info.get("uploader"),
         "duration": info.get("duration"),
@@ -365,7 +458,8 @@ def _at(args, video, scanned, out):
         results.append({"said_at": _hms(t), "frame": f"frame_{frames.seconds_to_stamp(hit['second'])}.jpg",
                         **{k: hit[k] for k in ("second", "offset", "method", "matches",
                                                "score", "words", "text")}})
-    (out / "at.json").write_text(json.dumps(results, indent=1, ensure_ascii=False))
+    (out / "at.json").write_text(json.dumps(results, indent=1, ensure_ascii=False),
+                                 encoding="utf-8")   # Windows default is cp1252
     return [r["second"] for r in results]
 
 
@@ -426,6 +520,12 @@ def _write_frame_index(chosen, out):
     lines = [f"frame_{frames.seconds_to_stamp(f['second'])}.jpg  "
              f"[{_hms(f['second'])}]  score={f['score']:.2f}" for f in chosen]
     (out / "frames.txt").write_text("\n".join(lines) + "\n")
+
+
+def _notes(args, out, is_local):
+    if args.notes:
+        from . import notes
+        notes.write(out, source=args.source, is_local=is_local)
 
 
 def _report(out):

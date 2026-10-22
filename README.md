@@ -7,26 +7,31 @@ Built for lectures, but it works on any video - gaming clips, tutorials,
 references for Claude. **Videos without captions work too:** a free
 speech-to-text model runs on your own computer and writes the transcript
 ([details](#any-video-even-without-captions---free)). Videos in other languages
-work, and can be translated to English.
+work, and can be translated to English. Video files on your computer work too.
 
-By default, frames are picked where the screen holds still (slides, code,
-diagrams). For gameplay and other fast footage, use
-[`--gameplay`](#gameplay-and-fast-footage) instead.
+It looks at each video and decides by itself how to pick frames: where the
+screen holds still for slides, code and diagrams; past a moving presenter for a
+whiteboard; the sharpest moments for gameplay
+([details](#how-it-picks-frames)). Add `--notes` for a study page with every
+frame next to what was being said ([notes page](#notes-page)).
 
 <a href="https://www.youtube.com/shorts/72ZZiSuqWXU"><img src="https://img.youtube.com/vi/72ZZiSuqWXU/maxresdefault.jpg" alt="Watch the 30-second demo on YouTube" width="480"></a>
 
 **[▶ Watch the 30-second demo](https://www.youtube.com/shorts/72ZZiSuqWXU)**
 
 **Contents:** [Requirements](#requirements) · [Setup](#setup) ·
-[Without uv (pip)](#without-uv-pip) · [Use](#use) ·
+[Without uv (pip)](#without-uv-pip) ·
+[As a `ytconv` command](#install-it-as-a-ytconv-command) · [Use](#use) ·
+[Your own video files](#your-own-video-files) · [Notes page](#notes-page) ·
 [No captions - free speech-to-text](#any-video-even-without-captions---free) ·
 [Languages and translation](#languages-and-translation) ·
 [The timestamp gap](#the-timestamp-gap) ·
-[Reading the screen](#reading-the-screen-mark-and-clean-board) ·
+[Reading the screen](#reading-the-screen---mark-and---clean-board) ·
 [Useful flags](#useful-flags) · [How many frames](#choosing-how-many-frames) ·
 [Repeated slides](#at-most-two-frames-of-one-slide) ·
-[Gameplay](#gameplay-and-fast-footage) · [How well it works](#how-well-it-works) ·
-[Claude Code skill](#use-it-with-claude-code) · [Ears](#experimental-ears) ·
+[How it picks frames](#how-it-picks-frames) · [How well it works](#how-well-it-works) ·
+[Health check](#health-check) · [Claude Code skill](#use-it-with-claude-code) ·
+[Claude Desktop (MCP)](#use-it-from-claude-desktop-or-other-apps-mcp) · [Ears](#experimental-ears) ·
 [Just ask Claude](#or-just-ask-claude) · [Disclaimer](#disclaimer)
 
 ## Requirements
@@ -40,6 +45,14 @@ brew install yt-dlp ffmpeg uv
 
 `uv` is optional - it only sets up Python for you. To use pip instead, see
 [Without uv (pip)](#without-uv-pip).
+
+**Windows and Linux.** Install the same three tools from their own sites:
+[yt-dlp](https://github.com/yt-dlp/yt-dlp#installation),
+[ffmpeg](https://ffmpeg.org/download.html) and
+[uv](https://docs.astral.sh/uv/). The code has been checked for Windows
+problems (file paths, text encoding, Hindi and other non-English text) but has
+**never been run on Windows**, so expect rough edges. On Windows, keep the URL
+in double quotes: `&` in a URL means something else to cmd and PowerShell.
 
 **Why Homebrew's yt-dlp.** YouTube now sends a small JavaScript puzzle before
 it serves a video. Homebrew's yt-dlp comes with the solver for
@@ -119,6 +132,31 @@ python -m ytconv "https://www.youtube.com/watch?v=VIDEO_ID"
 In a new terminal window, run `source .venv/bin/activate` again first - that
 is what lets the tool find the yt-dlp you installed.
 
+### Install it as a `ytconv` command
+
+ytconv is not on PyPI yet, so `pip install ytconv` does not work. You can build
+the package yourself and install it into any Python 3.13 (or newer)
+environment. Then the command is just `ytconv`. From the project folder:
+
+```bash
+uv build
+```
+
+```bash
+pip install dist/ytconv-0.1.0-py3-none-any.whl
+```
+
+```bash
+ytconv "https://www.youtube.com/watch?v=VIDEO_ID" --notes
+```
+
+yt-dlp and ffmpeg still need installing separately (see Requirements).
+Installed this way, the text reader's helper and the speech-to-text models go
+in your user cache folder (`~/Library/Caches/ytconv` on a Mac,
+`%LOCALAPPDATA%\ytconv` on Windows, `~/.cache/ytconv` on Linux); set
+`YTCONV_CACHE_DIR` to put them somewhere else. Tested on a Mac in a fresh
+environment on 2026-10-22: a 5½-minute whiteboard lecture took 64 seconds.
+
 ## Use
 
 ```bash
@@ -126,6 +164,9 @@ uv run python -m ytconv "https://www.youtube.com/watch?v=VIDEO_ID"
 ```
 
 (With the pip setup: `python -m ytconv "URL"`, after activating `.venv`.)
+
+A video file on your computer works too: give its path instead of a URL
+([details](#your-own-video-files)).
 
 Output lands in `output/<video_id>/`:
 
@@ -140,9 +181,48 @@ Output lands in `output/<video_id>/`:
 | `marked/`, `marked.json` | with `--mark`: frames with boxes around what is being talked about |
 | `clean/` | with `--clean-board`: frames with the presenter removed from the whiteboard |
 | `repeats.json` | slides or boards that showed up in more than 2 frames, and which 2 were kept |
+| `notes.html`, `notes.md` | with `--notes`: a study page, the transcript by section with the frames beside it |
 
 The video itself is downloaded to a temp directory and deleted afterwards, since
 these files are large. `--keep-video` keeps it, `--work-dir DIR` chooses where.
+
+## Your own video files
+
+Give a file path instead of a URL:
+
+```bash
+uv run python -m ytconv "lecture.mp4" --notes
+```
+
+For the transcript it uses, in order:
+
+1. **A subtitle file next to the video** with the same name: `lecture.srt`,
+   `lecture.vtt`, or one with a language code such as `lecture.en.srt`.
+2. **Free speech-to-text**, if you installed it
+   ([below](#any-video-even-without-captions---free)). It says how long that
+   will take before it starts - about a quarter to an eighth of the video's
+   length.
+
+`--no-stt` skips speech-to-text and keeps just the frames; `--stt` uses
+speech-to-text even when there is a subtitle file. Frames work exactly as for
+YouTube videos. `--translate` does not work on a subtitle file; the
+[Claude Code skill](#use-it-with-claude-code) has Claude translate instead.
+
+## Notes page
+
+`--notes` turns the results into a study page: `notes.html` (open it in any
+browser) and `notes.md` (for Obsidian or any Markdown app).
+
+- One section per chapter of the video, or one per 5 minutes when it has
+  none, with a list of sections at the top.
+- Each section's transcript, with every kept frame placed beside what was being
+  said when it appeared.
+- Every timestamp is a link that opens the YouTube video at that second.
+- A "Summary" line under each section, left for you - or Claude, with the
+  skill - to fill in.
+
+The page loads nothing from the internet; the frames sit in the `frames/`
+folder beside it, so keep the two together.
 
 ## Any video, even without captions - free
 
@@ -175,11 +255,14 @@ Only the Mac route has been tested. The first run downloads the model once
 
 It then happens on its own: a video without captions gets a transcript, and the
 first lines of `transcript.txt` say it came from speech-to-text. To use it even
-when captions exist - or on a video file on your computer - add `--stt`:
+when captions exist, add `--stt`:
 
 ```bash
-uv run python -m ytconv "lecture.mp4" --stt
+uv run python -m ytconv "URL" --stt
 ```
+
+Video files on your computer are transcribed this way automatically when they
+have no subtitle file ([details](#your-own-video-files)).
 
 `--stt-engine faster-whisper` or `--stt-engine whisper.cpp` picks one if you
 installed both. Measured on 5 minutes of an English lecture against the
@@ -283,14 +366,16 @@ uv run python -m ytconv "URL" --motion-max 4.5 --mark --clean-board
 - `--clean-board` - copies of the frames with the presenter removed from the whiteboard
 - `--lang hi` - the language the video is spoken in, if YouTube has it wrong
 - `--translate [LANG]` - also write the transcript in English (or LANG)
-- `--stt` - use speech-to-text even if captions exist, or on a local file
+- `--stt` - use speech-to-text even if captions exist
+- `--no-stt` - for a video file: don't transcribe it, frames only
+- `--notes` - also write the notes page (`notes.html`, `notes.md`)
 - `--debug-scores` - also write `scores.csv` to see why each second was kept or dropped
 - `--threshold 0.3` - loosen frame selection if too little is coming through
-- `--max-frames 50` - cap on frames kept
+- `--max-frames 50` - cap on frames kept (default 35, or one per 20 seconds on long videos)
 - `--max-same 3` - at most 3 frames of one slide or board (default 2; `0` keeps every repeat)
-- `--gameplay` - for games, sport and action: keep the sharpest moments instead of the still ones
+- `--gameplay` - for games, sport and action: keep the sharpest moments instead of the still ones (normally chosen automatically)
 - `--every 5` - no filtering, one frame every 5 seconds
-- `--motion-max 4.5` - let more movement through the stillness check (default 1.0)
+- `--motion-max 4.5` - let more movement through the stillness check (normally chosen automatically: 1.0, or 4.5 for a presenter at a board)
 - `--client mweb` - force one yt-dlp player client instead of the fallback chain
 
 ### Choosing how many frames
@@ -304,7 +389,9 @@ batch leaves less room for everything else.
 uv run python -m ytconv "URL" --max-frames 60 --threshold 0.3
 ```
 
-`--max-frames` is a limit, not a target (the default is 35). By default the
+`--max-frames` is a limit, not a target. The default is 35, or one per 20
+seconds on videos longer than about 12 minutes (72 for a 24-minute lecture), so
+a long lecture is not squeezed into 35 frames. By default the
 tool only keeps frames where the screen holds still, and skips repeats of the same slide,
 so to get more frames, raise the limit **and** loosen `--threshold` (default
 0.5, lower keeps more). For fewer, cheaper frames, lower the limit:
@@ -338,12 +425,33 @@ it went from 61% to 64%, and from 62% to 60% of the useful moments: the one
 and 4:09 frames. The whiteboard went from 24 frames to 16, the Hindi lecture from
 32 to 28. It added about 10 seconds to a 5-minute video.
 
-### Gameplay and fast footage
+### How it picks frames
 
-The default mode throws away any second where the picture is moving, because in
-a lecture, movement is almost always the presenter. In a game clip, the moving
-moments are the point, so the default can miss exactly what you want. Three
-ways round it, from smallest change to biggest:
+The tool scans one frame per second, looks at how the picture moves, and picks
+one of three ways to choose frames. It prints what it picked and why:
+
+```
+[frames] mode: board - something is always moving, but the picture stays put (a presenter at a board). Choose yourself with --gameplay or --motion-max N
+```
+
+- **default** - the picture holds perfectly still at times (slides, a screen
+  recording, tablet drawing). Moving seconds are dropped: in a lecture,
+  movement is almost always the presenter.
+- **board** - something is always moving, but the picture stays put (a
+  presenter at a whiteboard). The same rules, letting more movement through
+  (`--motion-max 4.5`).
+- **gameplay** - the picture jumps around, or the clip is under 90 seconds
+  (games, sport, Shorts). The moving moments are the point, so it keeps the
+  sharpest ones.
+
+On the test videos it picked default for the slides, screen recording, tablet,
+voice-over slides and code videos, board for the whiteboard and both Hindi
+board lectures, and gameplay for the gameplay Short. The gameplay choice was
+tuned on one 13-second clip, so a long gameplay video may get board mode - add
+`--gameplay` then.
+
+To choose yourself, give one of these; any of them turns the automatic choice
+off. From smallest change to biggest:
 
 | Flag | What it keeps | Good for |
 |---|---|---|
@@ -366,22 +474,33 @@ and the tool says so.
 Measured on real lectures in different styles - light slides, a dark screen
 recording, a whiteboard, tablet drawing, Hindi speech over English writing,
 voice-over slides, a code screencast - plus a gameplay Short. A person looked at
-**300 frames** and marked each useful in notes or not, and marked **45 moments**
+**353 frames** and marked each useful in notes or not, and marked **45 moments**
 where a visual first appears after it is spoken. Full tables:
 [tests/RESULTS.md](tests/RESULTS.md). Re-run them yourself with the scripts in
 `tests/` (they download the test videos; nothing is stored in the repo but the
 labels).
 
-**Frame picking** (precision = share of kept frames a person called useful):
+**Frame picking**, with the tool choosing the mode itself. "Useful" = the
+share of kept frames a person called useful in notes; "shown" = the share of
+useful moments (from an even sample) that some kept frame shows.
 
-| Video style | Default mode | Best mode for it |
-|---|---|---|
-| Light slides | 93% useful | default |
-| Dark screen recording | 86% useful, shows 80% of the useful moments | default |
-| Whiteboard with presenter | 0 of 16 useful | `--motion-max 4.5` or `--gameplay` (38-40%), plus `--clean-board` |
-| Tablet drawing (Khan Academy style) | 5 frames, 4 of them useful | default |
-| Hindi lecture, presenter at a board | keeps 1 frame | `--gameplay` (58%) or `--motion-max 4.5` (54%), plus `--clean-board` |
-| Gameplay Short | keeps 1 frame | `--gameplay` (40%) |
+| Video style | Mode it picked | Useful | Shown |
+|---|---|---|---|
+| Light slides | default | 89% | 47% |
+| Dark screen recording (16 min) | default | 67% | 90% |
+| Whiteboard with presenter | board | 38% | 75% |
+| Tablet drawing (Khan Academy style) | default | 4 of 5 | 100% |
+| Hindi lecture, presenter at a board | board | 86% | too few samples to say |
+| Gameplay Short | gameplay | 2 of 5 | 3 of 5 |
+| **All six** | | **72%** | **71%** |
+
+Before 2026-10-22 the tool used the default mode on everything unless told
+otherwise: 60% useful and 56% shown. On the whiteboard it kept no useful
+frames, and on the Hindi lecture it kept one.
+
+The bigger frame budget on long videos is a trade-off: on the 16-minute screen
+recording, frames show 90% of the useful moments instead of 80%, but 67% of
+them are useful instead of 79%. `--max-frames 35` gives the old behaviour.
 
 **`--at`** - hits within 6 seconds of where a person said the visual appears:
 
@@ -406,12 +525,34 @@ text.
   repeats. On the test video, notation added after 4:39 was missed. Add
   `--every 30` for the later stages. (Until 2026-10-21 these videos kept no
   frames at all; the dark-background check is now relative to the video.)
-- A presenter standing in front of the board: the default mode drops most
-  frames as "moving footage". `--motion-max 4.5` and `--clean-board` help.
+- A presenter standing in front of the board: board mode keeps the board,
+  but in most of its frames the presenter hides some of the writing (38%
+  useful on the whiteboard test). `--clean-board` helps.
+- Slides with something always moving on them - a presenter's video bubble in
+  a corner, text over moving footage, a scrolling page - never hold still, so
+  they are dropped as footage. That is 7 of the 10 useful slide moments the
+  light-slides test misses.
 - A teacher who writes slowly: the visual can land 12-60 seconds after it is
   said, and no `--at` rule tested catches that.
 - `--mark`'s `on-slide` / `no match` verdict has not been measured against
   human labels.
+
+## Health check
+
+YouTube changes often, and yt-dlp has to keep up. To check everything still
+works on your computer:
+
+```bash
+uv run python tests/healthcheck.py
+```
+
+It runs the real tool on two known videos and compares the results with
+answers measured on 2026-10-22: the transcript of a 24-minute lecture, a video
+download, and its frames. It takes about 45 seconds and downloads about 9 MB;
+`--quick` checks captions only, in about 5 seconds. Each check prints PASS or
+FAIL. If one fails, the usual fix is updating yt-dlp (`brew upgrade yt-dlp`).
+Run it on your own computer: YouTube often blocks cloud servers, so a check
+there mostly fails for the wrong reason.
 
 ## Use it with Claude Code
 
@@ -453,6 +594,37 @@ Code session and type `/youtube-converter`.
 Read `skills/youtube-converter/SKILL.md` before installing. A skill is a set of
 instructions Claude follows, including running commands on your computer.
 
+## Use it from Claude Desktop or other apps (MCP)
+
+ytconv includes an [MCP](https://modelcontextprotocol.io) server, so apps
+that support MCP - Claude Desktop, for example - can use it as a tool. It has
+three tools: `convert_video` (a URL or video file, with the main options),
+`read_transcript` (a time span of a finished transcript) and `list_frames`. It
+needs no extra packages.
+
+In Claude Desktop, add this to its config file, with the full path to your
+cloned folder:
+
+```json
+{
+  "mcpServers": {
+    "ytconv": {
+      "command": "uv",
+      "args": ["--directory", "/full/path/to/Youtuber-Converter",
+               "run", "python", "-m", "ytconv.mcp_server"]
+    }
+  }
+}
+```
+
+If the app cannot find `uv`, put its full path there instead (`which uv`
+prints it). Results go to a temporary folder unless you name one;
+`YTCONV_MCP_OUT_BASE` changes that default.
+
+Tested by sending it the same messages an MCP app sends: a YouTube transcript
+and a video-file conversion both worked. **Not yet tested inside Claude
+Desktop itself.**
+
 ## Experimental: ears
 
 `experiments/ears/` lets Claude (or you) "hear" a video by turning its sound
@@ -491,6 +663,8 @@ commands for you. For example:
 
 - "Convert this video: https://www.youtube.com/watch?v=..."
 - "Just get me the transcript of this one."
+- "Make me a notes page from this lecture."
+- "Convert lecture.mp4 on my Desktop."
 - "This video has no captions - transcribe it."
 - "Convert this Hindi lecture into English."
 - "Convert this video into Spanish."

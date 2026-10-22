@@ -1,9 +1,38 @@
+[build-system]
+requires = ["uv_build>=0.12.1,<0.13"]
+build-backend = "uv_build"
+
 [project]
 name = "ytconv"
 version = "0.1.0"
 description = "Turn a video into a clean transcript and the frames that carry information."
+readme = "README.md"
+license = "MIT"
+license-files = ["LICENSE"]
+authors = [{ name = "agrim20805-ship-it" }]
+keywords = ["youtube", "transcript", "lecture", "slides", "frames", "ocr", "study"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Environment :: Console",
+    "Intended Audience :: Education",
+    "Operating System :: MacOS",
+    "Operating System :: Microsoft :: Windows",
+    "Operating System :: POSIX :: Linux",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Education",
+    "Topic :: Multimedia :: Video",
+]
 requires-python = ">=3.13"
 dependencies = []
+
+[project.urls]
+Homepage = "https://github.com/agrim20805-ship-it/Youtuber-Converter"
+Repository = "https://github.com/agrim20805-ship-it/Youtuber-Converter"
+Issues = "https://github.com/agrim20805-ship-it/Youtuber-Converter/issues"
+
+[project.scripts]
+ytconv = "ytconv.cli:main"
 
 [project.optional-dependencies]
 whisper = [
@@ -12,3 +41,9 @@ whisper = [
 
 [tool.uv]
 package = false
+
+# The package sits at the top of the repo (ytconv/), not under src/.
+# Everything inside ytconv/ ships in the wheel, including ocr_vision.swift.
+[tool.uv.build-backend]
+module-root = ""
+module-name = "ytconv"

@@ -3,7 +3,7 @@ no label covers yet (they show up as "unlabelled" in score.py).
 
     uv run python tests/extend_queue.py --media /dir/with/test/videos --count 21
 
-Order: frames the default mode keeps first, then frames more modes agree on,
+Order: frames the tool keeps with no flags ("auto") first, then frames more modes agree on,
 taken in turn from each video so one lecture does not fill the batch. Then
 open the labelling page (tests/label_server.py) - it starts at the first
 frame without a label.
@@ -19,7 +19,7 @@ ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 sys.path.insert(0, str(ROOT / "tests"))
 
-from ytconv import frames  # noqa: E402
+from ytconv import frames, repeats  # noqa: E402
 from build_testset import LABEL_WIDTH, matching_label_second, modes  # noqa: E402
 from score import load_labels  # noqa: E402
 
@@ -34,7 +34,7 @@ def unlabelled(key, labels):
     labelled = [s for s in sample if (key, s) in labels]
     same = frames.same_distance(median(f["mean_lum"] for f in scan))
     out = {}
-    for mode, kept in modes(scan).items():
+    for mode, kept in modes(scan, key, repeats.MAX_SAME).items():
         for s in kept:
             if (key, s) in labels or str(s) in meta["queue"]:
                 continue
@@ -48,6 +48,7 @@ def main():
     p = argparse.ArgumentParser()
     p.add_argument("--media", required=True, help="where build_testset.py put the videos")
     p.add_argument("--count", type=int, default=21)
+    p.add_argument("--mode", default=None, help="only frames this mode keeps (e.g. auto)")
     args = p.parse_args()
 
     labels = load_labels()
@@ -57,14 +58,16 @@ def main():
         if v.get("purpose") == "at" or v["source"] == "local":
             continue          # local clip: its file is not in --media
         todo = unlabelled(v["key"], labels)
+        if args.mode:
+            todo = {s: ms for s, ms in todo.items() if args.mode in ms}
         per_video[v["key"]] = sorted(todo.items(),
-                                     key=lambda kv: ("default" not in kv[1], -len(kv[1]), kv[0]))
+                                     key=lambda kv: ("auto" not in kv[1], -len(kv[1]), kv[0]))
 
     picked = []
     while len(picked) < args.count and any(per_video.values()):
         # each round: the best remaining frame of every video, best first
         heads = [(k, lst.pop(0)) for k, lst in per_video.items() if lst]
-        heads.sort(key=lambda h: ("default" not in h[1][1], -len(h[1][1])))
+        heads.sort(key=lambda h: ("auto" not in h[1][1], -len(h[1][1])))
         picked += heads[:args.count - len(picked)]
 
     for key in sorted({k for k, _ in picked}):

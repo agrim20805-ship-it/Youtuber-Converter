@@ -62,6 +62,10 @@ def _run(args, tee=False):
         stdout=subprocess.PIPE,
         stderr=subprocess.STDOUT,
         text=True,
+        # On Windows text=True decodes with the legacy code page (cp1252), which
+        # raises on a few byte values; a title in Hindi or Japanese must not
+        # crash the run, so undecodable bytes become '?' instead.
+        errors="replace",
         bufsize=1,
     )
     lines = []
@@ -113,7 +117,7 @@ def fetch_captions(url, outdir, lang=None, translate=None):
     info_path = outdir / "v.info.json"
     if not info_path.exists():
         raise FetchError(f"could not read the video's information:\n{out}")
-    raw = json.loads(info_path.read_text())
+    raw = json.loads(info_path.read_text(encoding="utf-8"))   # yt-dlp writes UTF-8
     human = list(raw.get("subtitles") or {})
     auto = list(raw.get("automatic_captions") or {})
     hint = lang or raw.get("language") or ""
@@ -341,7 +345,7 @@ def fetch_video(url, outdir, clients=None):
     raise FetchError(
         "every player client failed. Tried:\n" + "\n".join(failures)
         + "\n\nThe usual causes, most likely first:"
-        + "\n  1. yt-dlp is out of date. YouTube changes often: `brew upgrade yt-dlp`."
+        + "\n  1. yt-dlp is out of date. YouTube changes often: `brew upgrade yt-dlp` (Mac) or `yt-dlp -U` (Windows)."
         + "\n  2. yt-dlp cannot solve YouTube's JavaScript challenge. It needs its"
         + "\n     challenge solver (yt-dlp-ejs) and a JavaScript runtime such as Deno."
         + "\n     Check: yt-dlp -v --simulate URL   (look for 'JS runtimes' and 'yt_dlp_ejs')"

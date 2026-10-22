@@ -1,6 +1,6 @@
 ---
 name: youtube-converter
-description: Turn a YouTube video into study material - a deduplicated transcript (any language, translated on request, or transcribed with free local speech-to-text when there are no captions), metadata with chapters, and 1080p frames showing only real on-screen content (slides, graphs, tables, code) rather than the presenter's face. Also gives the frame for a transcript moment, boxes what the speaker is talking about, and removes a presenter blocking a whiteboard. Use when the user says "convert this video", "get the transcript", "transcribe this", "this video has no captions", "translate this lecture", "convert this into English/Spanish", "pull the frames", "grab the slides from this lecture", "what's on screen at 08:04", "circle what he's talking about", "the teacher is blocking the board", "turn this lecture into notes", or "/youtube-converter".
+description: Turn a YouTube video into study material - a deduplicated transcript (any language, translated on request, or transcribed with free local speech-to-text when there are no captions), metadata with chapters, and 1080p frames showing only real on-screen content (slides, graphs, tables, code) rather than the presenter's face. Also gives the frame for a transcript moment, boxes what the speaker is talking about, and removes a presenter blocking a whiteboard, and makes a notes page with each frame beside what was said. Works on local video files too. Use when the user says "convert this video", "get the transcript", "transcribe this", "this video has no captions", "translate this lecture", "convert this into English/Spanish", "pull the frames", "grab the slides from this lecture", "what's on screen at 08:04", "circle what he's talking about", "the teacher is blocking the board", "turn this lecture into notes", "make me a notes page", "convert this video file", or "/youtube-converter".
 ---
 
 # YouTube converter
@@ -106,7 +106,11 @@ free and runs on their computer, and ask before installing either:
 - `uv sync --extra whisper` (or `pip install faster-whisper`)
 - `brew install whisper-cpp` (Windows and Linux: see the README)
 
-For a local video file, add `--stt` to get a transcript at all. Speech-to-text
+**A video file on the user's computer:** pass its path instead of the URL.
+A subtitle file beside it with the same name (`lecture.srt`, `lecture.vtt`,
+`lecture.en.srt`) is used first. Otherwise it is transcribed automatically if
+an engine is set up, and the tool prints how long that will take; `--no-stt`
+skips it (frames only). Speech-to-text
 measured 5.2-5.3% word error rate on an English lecture, running 4-8x faster
 than real time on an M4 Mac.
 
@@ -152,21 +156,50 @@ and upscales - upscaling adds no real detail.
 **Do not open the whole `frames/` folder.** Use the transcript and chapters to
 decide which moments matter, then look at just those frames.
 
-**Pick the frame mode from what the video is.** Measured on hand-labelled
-lectures (`PROJECT/tests/RESULTS.md`):
+**The tool picks the frame mode itself** and prints it:
+`[frames] mode: default|board|gameplay - <why>`. Default is for slides, screen
+recordings and tablet drawing; board lets a moving presenter through; gameplay
+keeps the sharpest moments of fast footage. Across six hand-labelled lecture
+styles (`PROJECT/tests/RESULTS.md`) the automatic choice kept 72% useful
+frames and showed 71% of the useful moments, against 60% and 56% for the old
+always-default behaviour. **Do not pass a mode flag unless the printed mode is
+clearly wrong** for the video - any of `--gameplay`, `--every`, `--motion-max`
+turns the automatic choice off. When overriding:
 
-- Slides or a screen recording: the default (86-93% of kept frames useful).
-- A presenter at a whiteboard, a shaky camera, a presenter beside the slides,
-  or a Short: `--motion-max 4.5` (the default keeps almost nothing there).
-  Add `--clean-board` for whiteboards (Step 7).
+- Slides or a screen recording: the default.
+- A presenter at a whiteboard, a shaky camera, a presenter beside the slides:
+  `--motion-max 4.5`. Add `--clean-board` for whiteboards (Step 7) - in board
+  mode most frames still have the presenter covering some writing.
 - Tablet drawing on a dark background (Khan Academy style): the default works
   (4 of 5 kept frames useful), but a drawing that builds up slowly keeps its early
   stage - add `--every 30` if the user wants the finished drawing.
 - Gameplay, sport, action: `--gameplay` (sharpest second every 3 seconds plus
-  big scene changes; stillness ignored).
+  big scene changes; stillness ignored). The automatic choice was tuned on one
+  short clip, so a long gameplay video may come out as board - override then.
 - The user wants everything, repeats included: `--every N`.
 
 If you are unsure what the video is, the title and transcript usually say.
+
+## Step 5b - A notes page, when the user wants notes
+
+"Turn this lecture into notes", "make me a study page": add `--notes`.
+
+```bash
+uv run python -m ytconv "URL" -o OUTDIR --notes
+```
+
+It writes `OUTDIR/notes.html` (open in a browser) and `OUTDIR/notes.md`: one
+section per chapter, or per 5 minutes when there are none; each section's
+transcript with the kept frames beside what was being said; every timestamp a
+link to that second of the video. Tell the user where both files are. The
+frames are in `OUTDIR/frames/`, so the folder must stay together.
+
+Each section has the line `Summary: (not written - ask Claude to fill this in)`.
+If the user wants summaries, write 2-4 sentences per section from **that
+section's transcript only**, replacing the line in both files (in
+`notes.html` it is the `<p class="summary">` element - escape `&`, `<` and `>`).
+Say nothing the transcript does not say. Leave the placeholder if the user
+did not ask.
 
 ## Step 6 - "What's on screen at MM:SS?"
 
@@ -243,7 +276,9 @@ Report what you hear with timestamps, and say how sure you are.
 - `--no-frames` - transcript only, no video download.
 - `--lang CODE` - the spoken language when YouTube's label is wrong.
 - `--translate [LANG]` - also write `transcript.LANG.txt` (default English).
-- `--stt` - speech-to-text even if captions exist; needed for local files.
+- `--stt` - speech-to-text even if captions exist (or a subtitle file is there).
+- `--no-stt` - a local video file: no speech-to-text, frames only.
+- `--notes` - also write `notes.html` and `notes.md` (Step 5b).
 - `--stt-engine faster-whisper|whisper.cpp` - pick the engine.
 - `--at MM:SS` - the frame for a transcript moment (Step 6). Repeatable.
 - `--mark`, `--clean-board` - boxed / presenter-free copies (Step 7).
@@ -254,13 +289,16 @@ Report what you hear with timestamps, and say how sure you are.
   second. Reach for this when frames come back wrong.
 - `--threshold 0.3` - loosen selection when too few frames come through.
   Default is 0.5.
-- `--max-frames 50` - cap on frames kept. Default is 35.
+- `--max-frames 50` - cap on frames kept. Default is 35, or one per 20 s on
+  videos longer than about 12 minutes.
 - `--keep-video`, `--work-dir DIR` - keep the downloaded video
   (as `DIR/video.mp4`) instead of deleting it.
-- `--gameplay` - fast footage: sharpest frames instead of still ones.
+- `--gameplay` - fast footage: sharpest frames instead of still ones. Normally
+  chosen automatically.
 - `--every N` - one frame every N seconds, no filtering. Cannot be combined
   with `--gameplay`.
-- `--motion-max N` - raise the stillness limit (default 1.0).
+- `--motion-max N` - the stillness limit (1.0 for slides, 4.5 for a board;
+  normally chosen automatically). Giving it turns off the automatic choice.
 - `--client NAME` - force one yt-dlp player client instead of the fallback
   chain.
 
@@ -279,11 +317,21 @@ causes in order: yt-dlp out of date, yt-dlp missing its JavaScript challenge
 solver, or a network (often school or work Wi-Fi) blocking YouTube's video
 servers.
 
+To check whether YouTube or yt-dlp has broken the tool in general, run this in
+`PROJECT` - captions only, about 5 seconds; without `--quick` it also tests a
+download and frames (about 45 seconds, 9 MB):
+
+```bash
+uv run python tests/healthcheck.py --quick
+```
+
 ## When frames come back wrong
 
 Re-run with `--debug-scores` and read `scores.csv`. The usual causes, in order:
 
-1. **Everything dropped as "moving footage".** A handheld or zooming camera, or
+1. **Everything dropped as "moving footage".** The automatic mode choice
+   should catch this; if the printed mode was `default` and still almost
+   nothing came through, read on. A handheld or zooming camera, or
    a presenter in shot, never holds still, so nothing passes the motion gate.
    **Vertical Shorts are the extreme case** - a talking head composited beside
    the diagram means no second is ever still, and every frame drops. Measured
@@ -336,3 +384,4 @@ Re-run with `--debug-scores` and read `scores.csv`. The usual causes, in order:
 | `marked/`, `marked.json` | with `--mark` |
 | `clean/` | with `--clean-board` |
 | `repeats.json` | slides or boards that were in more than 2 frames, and which 2 were kept |
+| `notes.html`, `notes.md` | with `--notes` (Step 5b) |

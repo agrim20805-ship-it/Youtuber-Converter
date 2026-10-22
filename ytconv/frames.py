@@ -43,6 +43,8 @@ BRIGHT_CEILING = 243.0    # blank or washed-out slides
 TEXTURE_FLOOR = 0.30      # essentially nothing on screen
 DEDUP_DISTANCE = 6.0      # mean luminance difference below this = the same slide
 MIN_GAP_SECONDS = 5
+MIN_FRAMES = 35           # the frame budget on videos up to ~12 minutes
+SECONDS_PER_FRAME = 20    # longer videos: one frame of budget per 20 s (see auto_max_frames)
 
 # Gameplay mode. Measured on a 13 s gameplay Short: a cut or a big on-screen
 # change moved the thumbnail 12-85 between seconds; continuous footage 1-8.
@@ -159,7 +161,52 @@ def same_distance(med_lum):
     return DEDUP_DISTANCE * min(1.0, med_lum / (2 * DARK_FLOOR))
 
 
-def select(frames, threshold=DEFAULT_THRESHOLD, max_frames=35,
+def auto_max_frames(duration):
+    """The frame budget when --max-frames is not given.
+
+    A fixed 35 meant one frame per 40 s on a 24-minute lecture, and slides shown
+    for less than that were lost: on the econ lecture, 3 of the 10 useful moments
+    no kept frame showed were still slides that lost their 40 s slot. Measured
+    2026-10-22 on the saved scans: one per 20 s raised coverage of useful moments
+    from 41% to 53% (econ lecture) and 80% to 90% (screen recording); videos
+    under ~12 minutes are unchanged."""
+    return max(MIN_FRAMES, round(duration / SECONDS_PER_FRAME))
+
+
+# --- Picking the mode automatically --------------------------------------
+#
+# The quietest tenth of a video's seconds tells slides apart from a presenter
+# who never stops moving: a slide, screen or drawing is held perfectly still at
+# times (10th-percentile motion 0.00-0.12 on the slides, screen and tablet test
+# videos), a person at a board is not (0.80-2.92). Among moving videos, a game
+# or sport clip jumps to a new picture far more often (58% of seconds vs 10-28%).
+# Measured 2026-10-22 on 9 test scans; on the 6 with hand labels the rule picked
+# the best mode every time: precision 60% -> 68%, coverage 56% -> 67% over
+# default-everywhere. Only one video per style - treat the thresholds as a first
+# guess. The 0.3 still-threshold sits in a wide gap; the 0.45 jump-threshold
+# rests on a single 13 s clip, so short clips (under AUTO_SHORT s) count as
+# fast footage too.
+
+AUTO_STILL = 0.3     # 10th-percentile motion below this = slides / screen / drawing
+AUTO_JUMPY = 0.45    # share of seconds with a big picture change = gameplay
+AUTO_SHORT = 90      # a moving clip shorter than this is treated as fast footage
+BOARD_MOTION_MAX = 4.5
+
+
+def detect_mode(frames):
+    """("default" | "board" | "gameplay", plain-words reason) from a scan."""
+    motion = sorted(f["motion"] for f in frames)
+    p10 = motion[min(len(motion) - 1, int(0.10 * len(motion)))]
+    if p10 < AUTO_STILL:
+        return "default", "the picture holds perfectly still at times (slides, screen or drawing)"
+    jumps = [_distance(a["lum"], b["lum"]) for a, b in zip(frames, frames[1:])]
+    jumpy = sum(1 for j in jumps if j >= CHANGE_DISTANCE) / max(1, len(jumps))
+    if jumpy >= AUTO_JUMPY or len(frames) < AUTO_SHORT:
+        return "gameplay", "the picture keeps moving and changes often (game, sport or a short clip)"
+    return "board", "something is always moving, but the picture stays put (a presenter at a board)"
+
+
+def select(frames, threshold=DEFAULT_THRESHOLD, max_frames=None,
            min_gap=MIN_GAP_SECONDS, motion_max=MOTION_MAX):
     """Gate on stillness, score on texture, then spread across the video."""
     med_tex = median(f["texture"] for f in frames) or 1e-6
@@ -193,7 +240,7 @@ def select(frames, threshold=DEFAULT_THRESHOLD, max_frames=35,
     same = same_distance(med_lum)
     if candidates:
         duration = frames[-1]["second"] + 1
-        bucket = max(1, duration / max_frames)
+        bucket = max(1, duration / (max_frames or auto_max_frames(duration)))
         best = {}
         for f in candidates:
             key = int(f["second"] / bucket)

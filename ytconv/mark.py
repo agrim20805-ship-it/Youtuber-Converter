@@ -71,7 +71,8 @@ def mark(frames_by_second, transcripts, out, languages=("en",)):
             if _draw(Path(path), [h["box"] for h in hits], target):
                 entry["marked"] = f"marked/{target.name}"
         results.append(entry)
-    (out / "marked.json").write_text(json.dumps(results, indent=1, ensure_ascii=False))
+    (out / "marked.json").write_text(json.dumps(results, indent=1, ensure_ascii=False),
+                                     encoding="utf-8")   # Windows default is cp1252
     return results
 
 

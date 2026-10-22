@@ -2,45 +2,54 @@
 
 ## Frame picking against human labels
 
-Made by `tests/score.py` from the labels in `tests/labels/frames.csv`: 300 frames, each looked at by a person and marked useful in notes or not. Rule used: a whiteboard frame where the presenter's body or hand covers the writing counts as not useful, unless they are pointing at it.
+Made by `tests/score.py` from the labels in `tests/labels/frames.csv`: 353 frames, each looked at by a person and marked useful in notes or not. Rule used: a whiteboard frame where the presenter's body or hand covers the writing counts as not useful, unless they are pointing at it.
 
 precision = of the frames a mode keeps, the share a person called useful. coverage = of the useful moments in an even sample, the share some kept frame shows.
 
-default and motion4.5 include the tool's repeated-slide cap (at most 2 frames of one slide or board, ytconv/repeats.py); `tests/score.py --max-same 0` scores them without it.
+auto = what the tool does when no mode flag is given: it looks at the video and picks default, motion4.5 ("board") or gameplay itself (frames.detect_mode). default, motion4.5 and auto keep up to 35 frames, or one per 20 s on videos longer than about 12 minutes (frames.auto_max_frames); gameplay and every keep up to 35.
+
+default, motion4.5 and auto include the tool's repeated-slide cap (at most 2 frames of one slide or board, ytconv/repeats.py); `tests/score.py --max-same 0` scores them without it.
 
 | video | style | mode | kept | useful | not | precision | coverage |
 |---|---|---|---|---|---|---|---|
-| slides | light slides, presenter cut-ins | default | 19 | 13 | 1 |   93% |   41% |
-| slides | light slides, presenter cut-ins | motion4.5 | 30 | 15 | 5 |   75% |   41% |
+| slides | light slides, presenter cut-ins | default | 28 | 24 | 3 |   89% |   47% |
+| slides | light slides, presenter cut-ins | motion4.5 | 46 | 23 | 4 |   85% |   53% |
 | slides | light slides, presenter cut-ins | gameplay | 35 | 2 | 8 |   20% |   29% |
 | slides | light slides, presenter cut-ins | every | 35 | 4 | 4 |   50% |   35% |
-| screen | dark screen recording | default | 29 | 18 | 3 |   86% |   80% |
-| screen | dark screen recording | motion4.5 | 30 | 17 | 4 |   81% |   70% |
-| screen | dark screen recording | gameplay | 35 | 12 | 5 |   71% |    5% |
-| screen | dark screen recording | every | 35 | 13 | 7 |   65% |   85% |
+| slides | light slides, presenter cut-ins | auto | 28 | 24 | 3 |   89% |   47% |
+| screen | dark screen recording | default | 38 | 24 | 12 |   67% |   90% |
+| screen | dark screen recording | motion4.5 | 43 | 18 | 11 |   62% |   85% |
+| screen | dark screen recording | gameplay | 35 | 13 | 5 |   72% |    5% |
+| screen | dark screen recording | every | 35 | 13 | 8 |   62% |   85% |
+| screen | dark screen recording | auto | 38 | 24 | 12 |   67% |   90% |
 | whiteboard | whiteboard, handwriting | default | 16 | 0 | 16 |    0% |   12% |
 | whiteboard | whiteboard, handwriting | motion4.5 | 16 | 6 | 10 |   38% |   75% |
 | whiteboard | whiteboard, handwriting | gameplay | 35 | 10 | 15 |   40% |   88% |
 | whiteboard | whiteboard, handwriting | every | 34 | 8 | 16 |   33% |   62% |
+| whiteboard | whiteboard, handwriting | auto | 16 | 6 | 10 |   38% |   75% |
 | tablet | tablet drawing, no presenter | default | 5 | 4 | 1 |   80% |  100% |
 | tablet | tablet drawing, no presenter | motion4.5 | 5 | 4 | 1 |   80% |  100% |
 | tablet | tablet drawing, no presenter | gameplay | 30 | 9 | 21 |   30% |  100% |
 | tablet | tablet drawing, no presenter | every | 35 | 12 | 21 |   36% |  100% |
+| tablet | tablet drawing, no presenter | auto | 5 | 4 | 1 |   80% |  100% |
 | hindi | Hindi speech, English slides and writing, presenter | default | 1 | 0 | 1 |    0% |   25% |
-| hindi | Hindi speech, English slides and writing, presenter | motion4.5 | 28 | 7 | 6 |   54% |   25% |
-| hindi | Hindi speech, English slides and writing, presenter | gameplay | 35 | 7 | 5 |   58% |   25% |
-| hindi | Hindi speech, English slides and writing, presenter | every | 35 | 4 | 5 |   44% |   25% |
+| hindi | Hindi speech, English slides and writing, presenter | motion4.5 | 28 | 24 | 4 |   86% |   25% |
+| hindi | Hindi speech, English slides and writing, presenter | gameplay | 35 | 8 | 5 |   62% |   25% |
+| hindi | Hindi speech, English slides and writing, presenter | every | 35 | 5 | 5 |   50% |   25% |
+| hindi | Hindi speech, English slides and writing, presenter | auto | 28 | 24 | 4 |   86% |   25% |
 | gameplay | gameplay Short, fast motion | default | 1 | 0 | 1 |    0% |   20% |
 | gameplay | gameplay Short, fast motion | motion4.5 | 2 | 0 | 2 |    0% |   20% |
 | gameplay | gameplay Short, fast motion | gameplay | 5 | 2 | 3 |   40% |   60% |
 | gameplay | gameplay Short, fast motion | every | 2 | 1 | 1 |   50% |   20% |
+| gameplay | gameplay Short, fast motion | auto | 5 | 2 | 3 |   40% |   60% |
 
 | all videos | mode | precision | coverage |
 |---|---|---|---|
-| | default |   60% (35/58) |   56% (35/63) |
-| | motion4.5 |   64% (49/77) |   60% (38/63) |
-| | gameplay |   42% (42/99) |   41% (26/63) |
-| | every |   44% (42/96) |   62% (39/63) |
+| | default |   60% (52/86) |   60% (38/63) |
+| | motion4.5 |   70% (75/107) |   68% (43/63) |
+| | gameplay |   44% (44/101) |   41% (26/63) |
+| | every |   44% (43/98) |   62% (39/63) |
+| | auto |   72% (84/117) |   71% (45/63) |
 
 ## --at against human answers
 

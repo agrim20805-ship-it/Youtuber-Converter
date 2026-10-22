@@ -127,10 +127,15 @@ def main():
             "precision = of the frames a mode keeps, the share a person called useful. "
             "coverage = of the useful moments in an even sample, the share some kept "
             "frame shows.\n\n"
-            + (f"default and motion4.5 include the tool's repeated-slide cap (at most "
+            "auto = what the tool does when no mode flag is given: it looks at the "
+            "video and picks default, motion4.5 (\"board\") or gameplay itself "
+            "(frames.detect_mode). default, motion4.5 and auto keep up to 35 frames, or "
+            "one per 20 s on videos longer than about 12 minutes (frames.auto_max_frames); "
+            "gameplay and every keep up to 35.\n\n"
+            + (f"default, motion4.5 and auto include the tool's repeated-slide cap (at most "
                f"{args.max_same} frames of one slide or board, ytconv/repeats.py); "
                "`tests/score.py --max-same 0` scores them without it.\n\n"
-               if args.max_same else "default and motion4.5 are scored WITHOUT the "
+               if args.max_same else "default, motion4.5 and auto are scored WITHOUT the "
                "repeated-slide cap (--max-same 0).\n\n")
             + text + "\n" + rest)
         print("\nwrote tests/RESULTS.md")

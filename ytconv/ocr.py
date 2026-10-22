@@ -13,9 +13,12 @@ import subprocess
 import sys
 from pathlib import Path
 
+from . import paths
+
 ROOT = Path(__file__).resolve().parent.parent
 SWIFT_SRC = Path(__file__).resolve().parent / "ocr_vision.swift"
-VISION_BIN = ROOT / ".cache" / "ocr-vision"
+# .cache/ in the project folder, or a per-user cache folder when installed (paths.py)
+VISION_BIN = paths.cache_dir() / "ocr-vision"
 BATCH = 40   # images per helper call
 
 # Vision's own codes for the languages it reads (measured: 34 on macOS 28).
@@ -40,8 +43,25 @@ def engine():
     """'vision', 'tesseract' or None."""
     if sys.platform == "darwin" and (VISION_BIN.exists() or shutil.which("swiftc")):
         return "vision"
-    if shutil.which("tesseract"):
+    if _tesseract():
         return "tesseract"
+    return None
+
+
+def _tesseract():
+    """Path of tesseract, or None. The Windows installer does not add itself to
+    PATH unless asked, so its usual install folders are checked as well."""
+    found = shutil.which("tesseract")
+    if found:
+        return found
+    if sys.platform == "win32":
+        import os
+        for base in (os.environ.get("ProgramFiles"), os.environ.get("ProgramFiles(x86)"),
+                     os.environ.get("LOCALAPPDATA")):
+            if base:
+                exe = Path(base) / "Tesseract-OCR" / "tesseract.exe"
+                if exe.exists():
+                    return str(exe)
     return None
 
 
@@ -97,9 +117,14 @@ def _read_vision(images, codes):
 def _read_tesseract(images, codes):
     langs = "+".join(TESS_LANGS[c] for c in codes if c in TESS_LANGS) or "eng"
     out = {}
+    exe = _tesseract()
     for img in images:
-        proc = subprocess.run(["tesseract", img, "stdout", "-l", langs],
-                              capture_output=True, text=True)
+        # tesseract writes UTF-8; Windows would decode it as cp1252 (Hindi, CJK garbled)
+        run = lambda lang: subprocess.run([exe, img, "stdout", "-l", lang], capture_output=True,
+                                          text=True, encoding="utf-8", errors="replace")
+        proc = run(langs)
+        if proc.returncode != 0 and langs != "eng":
+            proc = run("eng")   # a language pack that is not installed fails the whole call
         out[img] = [{"text": t.strip(), "confidence": None}
                     for t in proc.stdout.splitlines() if t.strip()]
     return out

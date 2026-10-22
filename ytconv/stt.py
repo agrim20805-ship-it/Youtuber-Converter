@@ -9,7 +9,8 @@ not stop the other:
                     Windows: the release zip from github.com/ggml-org/whisper.cpp
                     Linux: your package manager, or build it from that repo
 
-Both keep their model in the project's models/ folder, downloaded once.
+Both keep their model in the project's models/ folder (when installed with pip:
+a per-user cache folder, see paths.py), downloaded once.
 
 Audio is always decoded by ffmpeg, never by the PyAV package faster-whisper
 normally uses: PyAV 19.0.2 crashed faster-whisper 1.2.1 on the very first test
@@ -24,7 +25,10 @@ import tempfile
 import urllib.request
 from pathlib import Path
 
-MODELS_DIR = Path(__file__).resolve().parent.parent / "models"
+from . import paths
+
+# models/ in the project folder, or a per-user cache folder when installed (paths.py)
+MODELS_DIR = paths.models_dir()
 MODEL = "small"
 GGML_URL = "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-small.bin"
 SAMPLE_RATE = 16000
@@ -35,6 +39,21 @@ INSTALL_HINT = (
     "  uv sync --extra whisper        (or: pip install faster-whisper)\n"
     "  brew install whisper-cpp       (Windows/Linux: see the README)"
 )
+
+
+# Measured on this Mac (audio length / wall time): whisper.cpp 7.9x, faster-whisper 4.3x.
+SPEED = {"whisper.cpp": 7.9, "faster-whisper": 4.3}
+
+
+def media_duration(media):
+    """Length of a media file in seconds via ffprobe, or 0 if unreadable."""
+    out = subprocess.run(
+        ["ffprobe", "-v", "error", "-show_entries", "format=duration",
+         "-of", "csv=p=0", str(media)], capture_output=True, text=True).stdout.strip()
+    try:
+        return float(out)
+    except ValueError:
+        return 0.0
 
 
 def engines():
@@ -115,11 +134,13 @@ def _whisper_cpp(media, task, language):
         if task == "translate":
             args.append("-tr")
         print(f"[stt] whisper.cpp ({MODEL})", flush=True)
-        proc = subprocess.run(args, capture_output=True, text=True)
+        # whisper-cli prints and writes UTF-8; Windows would decode with cp1252
+        proc = subprocess.run(args, capture_output=True, text=True,
+                              encoding="utf-8", errors="replace")
         out = base.with_suffix(".json")
         if proc.returncode != 0 or not out.exists():
             raise RuntimeError((proc.stderr or proc.stdout).strip()[-400:])
-        data = json.loads(out.read_text(errors="replace"))
+        data = json.loads(out.read_text(encoding="utf-8", errors="replace"))
     segments = [(seg["offsets"]["from"] / 1000, seg["text"].strip())
                 for seg in data.get("transcription", []) if seg.get("text", "").strip()]
     lang = data.get("result", {}).get("language")
@@ -139,6 +160,9 @@ def write_transcript(result, out_path, header=None):
     body = "\n".join(lines) + "\n"
     if header:
         body = header + "\n\n" + body
-    Path(out_path).write_text(body)
+    # UTF-8 explicitly (Windows defaults to cp1252, which cannot hold Hindi/CJK)
+    # and "\n" endings so the file is the same on every system.
+    with open(out_path, "w", encoding="utf-8", newline="\n") as fh:
+        fh.write(body)
     return {"lines": len(lines), "chars": len(body),
             "last_timestamp": int(segments[-1][0]) if segments else 0}
