@@ -170,6 +170,8 @@ def main():
     spec = json.loads((ROOT / "tests" / "testset.json").read_text())
     total = 0
     for video in spec["videos"]:
+        if video.get("purpose") == "clean":   # made by tests/score_clean.py --build
+            continue
         if args.only and video["key"] != args.only:
             continue
         n = build(video, args.media, args.local_gameplay)

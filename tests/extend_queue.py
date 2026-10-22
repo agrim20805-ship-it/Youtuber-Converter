@@ -55,7 +55,7 @@ def main():
     spec = json.loads((ROOT / "tests" / "testset.json").read_text())
     per_video = {}
     for v in spec["videos"]:
-        if v.get("purpose") == "at" or v["source"] == "local":
+        if v.get("purpose") in ("at", "clean") or v["source"] == "local":
             continue          # local clip: its file is not in --media
         todo = unlabelled(v["key"], labels)
         if args.mode:

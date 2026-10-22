@@ -66,6 +66,22 @@
    "purpose": "at",
    "source": "https://www.youtube.com/watch?v=E9DOBLNB-aE",
    "answer_key": "human English subtitles"
+  },
+  {
+   "key": "whiteboard-clean",
+   "style": "whiteboard, handwriting - presenter removed (clean/)",
+   "language": "en",
+   "purpose": "clean",
+   "source": "https://www.youtube.com/watch?v=nPp5jRGWz_A",
+   "answer_key": null
+  },
+  {
+   "key": "hindi-clean",
+   "style": "Hindi speech, English slides and writing, presenter - presenter removed (clean/)",
+   "language": "hi",
+   "purpose": "clean",
+   "source": "https://www.youtube.com/watch?v=3EJlovevfcA",
+   "answer_key": null
   }
  ]
 }

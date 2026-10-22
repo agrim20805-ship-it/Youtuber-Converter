@@ -58,7 +58,9 @@ def write(out, source=None, is_local=False):
 
     doc = {"title": title, "uploader": meta.get("uploader"), "video_id": video_id,
            "source": source, "is_local": is_local, "sections": sections,
-           "has_transcript": bool(lines)}
+           "has_transcript": bool(lines),
+           # board videos: show the copy with the presenter removed where it came out clean
+           "clean": _clean_seconds(out, shots)}
     (out / "notes.html").write_text(_html(doc), encoding="utf-8")
     (out / "notes.md").write_text(_markdown(doc), encoding="utf-8")
     placed = sum(len(p["frames"]) for s in sections for p in s["paras"]) \
@@ -190,8 +192,21 @@ def _watch_url(video_id, seconds=None):
     return url + (f"&t={int(seconds)}s" if seconds is not None else "")
 
 
-def _frame_path(seconds):
-    return f"frames/frame_{_frames.seconds_to_stamp(seconds)}.jpg"
+def _clean_seconds(out, shots):
+    """Seconds whose clean/ copy should be shown: clean/clean.json says which
+    are free of a presenter ghost. No clean.json = no clean copies shown."""
+    data = _read_json(out / "clean" / "clean.json") or {}
+    ok = {r.get("second") for r in data.get("frames", []) if r.get("use") == "clean"}
+    return {t for t in shots if t in ok and (out / _frame_path(t, clean=True)).exists()}
+
+
+def _frame_path(seconds, clean=False):
+    folder = "clean" if clean else "frames"
+    return f"{folder}/frame_{_frames.seconds_to_stamp(seconds)}.jpg"
+
+
+def _shown_path(doc, seconds):
+    return _frame_path(seconds, clean=seconds in doc.get("clean", ()))
 
 
 # ---- HTML -------------------------------------------------------------------
@@ -286,9 +301,11 @@ def _block_html(doc, text_html, shots):
     if shots:
         out.append('<div class="shots">')
         for s in shots:
-            out.append(f'<figure><img src="{_e(_frame_path(s))}" loading="lazy" '
+            note = (f' · presenter removed (<a href="{_e(_frame_path(s))}">original</a>)'
+                    if s in doc.get("clean", ()) else "")
+            out.append(f'<figure><img src="{_e(_shown_path(doc, s))}" loading="lazy" '
                        f'alt="Frame at {_e(_clock(s))}">'
-                       f'<figcaption>Frame at {_stamp_html(doc, s)}</figcaption></figure>')
+                       f'<figcaption>Frame at {_stamp_html(doc, s)}{note}</figcaption></figure>')
         out.append('</div>')
     out.append('</div>')
     return "\n".join(out)
@@ -328,6 +345,8 @@ def _markdown(doc):
 def _shots_md(doc, seconds):
     out = []
     for s in seconds:
-        out += [f"![Frame at {_clock(s)}]({_frame_path(s)})", "",
-                f"_Frame at {_stamp_md(doc, s)}_", ""]
+        note = (f" - presenter removed ([original]({_frame_path(s)}))"
+                if s in doc.get("clean", ()) else "")
+        out += [f"![Frame at {_clock(s)}]({_shown_path(doc, s)})", "",
+                f"_Frame at {_stamp_md(doc, s)}{note}_", ""]
     return out

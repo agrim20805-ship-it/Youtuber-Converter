@@ -2,7 +2,7 @@
 
 ## Frame picking against human labels
 
-Made by `tests/score.py` from the labels in `tests/labels/frames.csv`: 353 frames, each looked at by a person and marked useful in notes or not. Rule used: a whiteboard frame where the presenter's body or hand covers the writing counts as not useful, unless they are pointing at it.
+Made by `tests/score.py` from the labels in `tests/labels/frames.csv`: 404 frames, each looked at by a person and marked useful in notes or not. Rule used: a whiteboard frame where the presenter's body or hand covers the writing counts as not useful, unless they are pointing at it.
 
 precision = of the frames a mode keeps, the share a person called useful. coverage = of the useful moments in an even sample, the share some kept frame shows.
 
@@ -12,17 +12,17 @@ default, motion4.5 and auto include the tool's repeated-slide cap (at most 2 fra
 
 | video | style | mode | kept | useful | not | precision | coverage |
 |---|---|---|---|---|---|---|---|
-| slides | light slides, presenter cut-ins | default | 28 | 24 | 3 |   89% |   47% |
-| slides | light slides, presenter cut-ins | motion4.5 | 46 | 23 | 4 |   85% |   53% |
+| slides | light slides, presenter cut-ins | default | 36 | 31 | 4 |   89% |   65% |
+| slides | light slides, presenter cut-ins | motion4.5 | 46 | 25 | 5 |   83% |   53% |
 | slides | light slides, presenter cut-ins | gameplay | 35 | 2 | 8 |   20% |   29% |
 | slides | light slides, presenter cut-ins | every | 35 | 4 | 4 |   50% |   35% |
-| slides | light slides, presenter cut-ins | auto | 28 | 24 | 3 |   89% |   47% |
+| slides | light slides, presenter cut-ins | auto | 36 | 31 | 4 |   89% |   65% |
 | screen | dark screen recording | default | 38 | 24 | 12 |   67% |   90% |
 | screen | dark screen recording | motion4.5 | 43 | 18 | 11 |   62% |   85% |
 | screen | dark screen recording | gameplay | 35 | 13 | 5 |   72% |    5% |
 | screen | dark screen recording | every | 35 | 13 | 8 |   62% |   85% |
 | screen | dark screen recording | auto | 38 | 24 | 12 |   67% |   90% |
-| whiteboard | whiteboard, handwriting | default | 16 | 0 | 16 |    0% |   12% |
+| whiteboard | whiteboard, handwriting | default | 19 | 4 | 13 |   24% |   62% |
 | whiteboard | whiteboard, handwriting | motion4.5 | 16 | 6 | 10 |   38% |   75% |
 | whiteboard | whiteboard, handwriting | gameplay | 35 | 10 | 15 |   40% |   88% |
 | whiteboard | whiteboard, handwriting | every | 34 | 8 | 16 |   33% |   62% |
@@ -32,7 +32,7 @@ default, motion4.5 and auto include the tool's repeated-slide cap (at most 2 fra
 | tablet | tablet drawing, no presenter | gameplay | 30 | 9 | 21 |   30% |  100% |
 | tablet | tablet drawing, no presenter | every | 35 | 12 | 21 |   36% |  100% |
 | tablet | tablet drawing, no presenter | auto | 5 | 4 | 1 |   80% |  100% |
-| hindi | Hindi speech, English slides and writing, presenter | default | 1 | 0 | 1 |    0% |   25% |
+| hindi | Hindi speech, English slides and writing, presenter | default | 30 | 12 | 1 |   92% |   25% |
 | hindi | Hindi speech, English slides and writing, presenter | motion4.5 | 28 | 24 | 4 |   86% |   25% |
 | hindi | Hindi speech, English slides and writing, presenter | gameplay | 35 | 8 | 5 |   62% |   25% |
 | hindi | Hindi speech, English slides and writing, presenter | every | 35 | 5 | 5 |   50% |   25% |
@@ -45,11 +45,11 @@ default, motion4.5 and auto include the tool's repeated-slide cap (at most 2 fra
 
 | all videos | mode | precision | coverage |
 |---|---|---|---|
-| | default |   60% (52/86) |   60% (38/63) |
-| | motion4.5 |   70% (75/107) |   68% (43/63) |
+| | default |   70% (75/107) |   71% (45/63) |
+| | motion4.5 |   70% (77/110) |   68% (43/63) |
 | | gameplay |   44% (44/101) |   41% (26/63) |
 | | every |   44% (43/98) |   62% (39/63) |
-| | auto |   72% (84/117) |   71% (45/63) |
+| | auto |   73% (91/125) |   76% (48/63) |
 
 ## --at against human answers
 
@@ -118,3 +118,12 @@ First 5 minutes of each video, Whisper `small` model, on a Mac (M4 Pro). faster-
 | transcribe | econ lecture (English) | whisper.cpp | 5.2% word error rate | 38 s for 300 s of audio (7.9x real time) |
 | translate | Hindi DBMS lecture -> English | faster-whisper | 80% of the reference's content words came back | 32 s for 300 s of audio (9.5x real time) |
 | translate | Hindi DBMS lecture -> English | whisper.cpp | 81% of the reference's content words came back | 7 s for 300 s of audio (40.4x real time) |
+
+## Presenter removed (--clean-board) against human labels
+
+The frames auto mode keeps on the board videos, each labelled twice: the original and its copy with the presenter removed (the median of the next 40 s). "The tool's choice" = what the notes page shows: the clean copy when its ghost share is at most 0.14 (frames.ghost_share), else the original. That cut-off was tuned on these same frames. Made by `tests/score_clean.py`.
+
+| video | frames | original useful | presenter removed useful | better | worse | the tool's choice useful |
+|---|---|---|---|---|---|---|
+| whiteboard | 11 | 5 (45%) | 11 (100%) | 6 | 0 | 11 (100%) |
+| hindi | 24 | 23 (96%) | 16 (67%) | 0 | 7 | 22 (92%) |

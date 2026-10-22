@@ -46,6 +46,22 @@ MIN_GAP_SECONDS = 5
 MIN_FRAMES = 35           # the frame budget on videos up to ~12 minutes
 SECONDS_PER_FRAME = 20    # longer videos: one frame of budget per 20 s (see auto_max_frames)
 
+# A slide beside a moving presenter bubble (picture-in-picture). The whole
+# second counts as moving, so the motion gate dropped it - 4 of the 9 useful
+# slide moments the light-slides lecture missed. Allowed through when the
+# movement covers at most INSET_MOVING of the picture AND the still part is
+# mostly plain light slide background. On that lecture's moving frames a person
+# labelled, it let through 11 useful and 5 not useful (talking heads in front of
+# shelves have no white background). Coverage 47% -> 71%, precision unchanged
+# (89%); nearby settings (0.3-0.5, 0.5-0.7) gave the same. The score penalty
+# lets a still frame of the same slide win its bucket; without it: 65%, 83%.
+# Slides mode only - in board mode a whiteboard IS a light background.
+# Not handled: dark slides with a bubble, text over moving video, scrolling.
+INSET_MOVING = 0.4        # share of the picture (64x36 cells, grown by one) that moves
+INSET_WHITE = 0.6         # share of the still part that is light, unsaturated background
+INSET_PENALTY = 0.7       # score multiplier for such a frame
+INSET_CELL_MOVES = 6.0    # a cell's brightness change that counts as moving
+
 # Gameplay mode. Measured on a 13 s gameplay Short: a cut or a big on-screen
 # change moved the thumbnail 12-85 between seconds; continuous footage 1-8.
 GAMEPLAY_WINDOW = 3       # keep the sharpest second from each window this long
@@ -89,7 +105,7 @@ def _scan_appearance(video):
     out = []
     for second in range(len(samples) // 2):
         a, b = samples[2 * second], samples[2 * second + 1]
-        out.append({
+        row = {
             "second": second,
             "lum": a["lum"],
             "saturation": a["saturation"],
@@ -97,19 +113,48 @@ def _scan_appearance(video):
             # Stillness is the gate. A slide is identical half a second later;
             # a person talking is not.
             "motion": sum(abs(x - y) for x, y in zip(a["lum"], b["lum"])) / len(a["lum"]),
-        })
+        }
+        if row["motion"] >= MOTION_MAX:     # only needed where the gate would drop it
+            row["moving"], row["still_white"] = _inset(a, b)
+        out.append(row)
     return out
+
+
+def _inset(a, b):
+    """(share of the picture that moves, share of the still rest that is plain
+    light background) - see INSET_MOVING. Rows are bit masks so growing the
+    moving area by one cell is a few integer operations, not a loop per cell."""
+    w, h = SCAN_W, SCAN_H
+    full = (1 << w) - 1
+    la, lb, sat = a["lum"], b["lum"], a["sat"]
+    moved, white = [], []
+    for y in range(h):
+        m = wt = 0
+        for x in range(w):
+            i = y * w + x
+            if abs(la[i] - lb[i]) > INSET_CELL_MOVES:
+                m |= 1 << x
+            if la[i] > 180 and sat[i] < 40:
+                wt |= 1 << x
+        moved.append((m | (m << 1) | (m >> 1)) & full)      # grow left and right
+        white.append(wt)
+    grown = [moved[y] | (moved[y - 1] if y else 0) | (moved[y + 1] if y + 1 < h else 0)
+             for y in range(h)]                              # and up and down
+    n_moving = sum(bin(g).count("1") for g in grown)
+    n_still = w * h - n_moving
+    n_white = sum(bin(white[y] & ~grown[y] & full).count("1") for y in range(h))
+    return round(n_moving / (w * h), 3), round(n_white / max(1, n_still), 3)
 
 
 def _measure(buf):
     lum = [0.0] * (SCAN_W * SCAN_H)
-    sat_total = 0
+    sat = [0] * (SCAN_W * SCAN_H)
     for i in range(SCAN_W * SCAN_H):
         r, g, b = buf[i * 3], buf[i * 3 + 1], buf[i * 3 + 2]
         lum[i] = 0.299 * r + 0.587 * g + 0.114 * b
-        sat_total += max(r, g, b) - min(r, g, b)
-    return {"lum": lum,
-            "saturation": sat_total / (SCAN_W * SCAN_H),
+        sat[i] = max(r, g, b) - min(r, g, b)
+    return {"lum": lum, "sat": sat,
+            "saturation": sum(sat) / (SCAN_W * SCAN_H),
             "mean_lum": sum(lum) / len(lum)}
 
 
@@ -206,6 +251,12 @@ def detect_mode(frames):
     return "board", "something is always moving, but the picture stays put (a presenter at a board)"
 
 
+def is_inset(f):
+    """A slide with a small moving picture-in-picture beside it (INSET_MOVING)."""
+    return (f.get("moving") is not None and f["moving"] <= INSET_MOVING
+            and f.get("still_white", 0) >= INSET_WHITE)
+
+
 def select(frames, threshold=DEFAULT_THRESHOLD, max_frames=None,
            min_gap=MIN_GAP_SECONDS, motion_max=MOTION_MAX):
     """Gate on stillness, score on texture, then spread across the video."""
@@ -228,11 +279,13 @@ def select(frames, threshold=DEFAULT_THRESHOLD, max_frames=None,
             debug[f["second"]] = "drop: near-white"
         elif f["texture"] < TEXTURE_FLOOR:
             debug[f["second"]] = "drop: blank"
-        elif f["motion"] >= motion_max:
+        elif f["motion"] >= motion_max and not (motion_max <= MOTION_MAX and is_inset(f)):
             debug[f["second"]] = "drop: moving footage"
         elif f["score"] < threshold:
             debug[f["second"]] = "drop: below threshold"
         else:
+            if f["motion"] >= motion_max:      # a slide beside a moving presenter bubble
+                f["score"] *= INSET_PENALTY
             debug[f["second"]] = "candidate"
             candidates.append(f)
 
@@ -476,6 +529,41 @@ def seconds_to_stamp(seconds):
 
 CLEAN_WINDOW = 40
 
+# Is a clean copy actually clean? It is not when the presenter stays in one spot
+# for much of the window (talking to camera): the median keeps a blurry ghost.
+# Ghost share = share of a 160x90 thumbnail whose pixels differ from the window's
+# median (by GHOST_DIFF) in at least GHOST_UNSETTLED of its seconds. Measured on
+# 35 board frames a person labelled both ways (tests/score_clean.py): originals
+# 28 useful, clean copies 27, "clean copy only when ghost share <= GHOST_MAX"
+# 33 (whiteboard 11/11, Hindi lecture 22/24). 0.14-0.16 gave the same. Tuned on
+# two videos only.
+GHOST_DIFF = 25
+GHOST_UNSETTLED = 0.4
+GHOST_MAX = 0.14
+
+
+def ghost_share(video, sec, duration, window=CLEAN_WINDOW):
+    """Share of the picture where a clean copy of `sec` would keep a ghost."""
+    w, h = 160, 90
+    n = w * h
+    window = max(3, min(window, int(duration)))
+    start = max(0, min(sec, int(duration) - window - 1))
+    raw = subprocess.run(["ffmpeg", "-v", "error", "-ss", str(start), "-t", str(window),
+                          "-i", str(video), "-vf", f"fps=1,scale={w}:{h}",
+                          "-f", "rawvideo", "-pix_fmt", "gray", "-"],
+                         capture_output=True).stdout
+    shots = [raw[i:i + n] for i in range(0, len(raw) - n + 1, n)]
+    if len(shots) < 3:
+        return 1.0
+    need = max(1, int(GHOST_UNSETTLED * len(shots)))
+    unsettled = 0
+    for i in range(n):
+        col = sorted(f[i] for f in shots)
+        mid = col[len(col) // 2]
+        if sum(1 for v in col if abs(v - mid) > GHOST_DIFF) >= need:
+            unsettled += 1
+    return unsettled / n
+
 
 def clean_board(video, seconds, outdir, duration, window=CLEAN_WINDOW, width=None):
     """Write clean/frame_MM-SS.jpg for each second; returns the paths written."""
@@ -483,8 +571,7 @@ def clean_board(video, seconds, outdir, duration, window=CLEAN_WINDOW, width=Non
     outdir.mkdir(parents=True, exist_ok=True)
     window = max(3, min(window, int(duration)))
     radius = (window - 1) // 2
-    written = []
-    for sec in seconds:
+    def one(sec):
         # near the end there are not 40 s left: slide the window back to fit
         start = max(0, min(sec, int(duration) - window - 1))
         vf = f"fps=1,tmedian=radius={radius}"
@@ -496,6 +583,10 @@ def clean_board(video, seconds, outdir, duration, window=CLEAN_WINDOW, width=Non
         proc = subprocess.run(["ffmpeg", "-v", "error", "-ss", str(start), "-t", str(window + 2),
                                "-i", str(video), "-vf", vf, "-frames:v", "1", "-q:v", "2",
                                str(out), "-y"])
-        if proc.returncode == 0 and out.exists():
-            written.append(out)
-    return written
+        return out if proc.returncode == 0 and out.exists() else None
+
+    # each copy is its own ffmpeg run, so several at once (about 5 s each at 1080p)
+    from concurrent.futures import ThreadPoolExecutor
+    import os
+    with ThreadPoolExecutor(max_workers=min(6, os.cpu_count() or 2)) as pool:
+        return [p for p in pool.map(one, seconds) if p is not None]

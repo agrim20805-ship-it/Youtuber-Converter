@@ -158,18 +158,20 @@ decide which moments matter, then look at just those frames.
 
 **The tool picks the frame mode itself** and prints it:
 `[frames] mode: default|board|gameplay - <why>`. Default is for slides, screen
-recordings and tablet drawing; board lets a moving presenter through; gameplay
-keeps the sharpest moments of fast footage. Across six hand-labelled lecture
-styles (`PROJECT/tests/RESULTS.md`) the automatic choice kept 72% useful
-frames and showed 71% of the useful moments, against 60% and 56% for the old
+recordings and tablet drawing (it also keeps a light slide with a small moving
+presenter bubble beside it); board lets a moving presenter through and makes
+presenter-removed copies (Step 7); gameplay keeps the sharpest moments of fast
+footage. Across six hand-labelled lecture
+styles (`PROJECT/tests/RESULTS.md`) the automatic choice kept 73% useful
+frames and showed 76% of the useful moments, against 60% and 56% for the old
 always-default behaviour. **Do not pass a mode flag unless the printed mode is
 clearly wrong** for the video - any of `--gameplay`, `--every`, `--motion-max`
 turns the automatic choice off. When overriding:
 
 - Slides or a screen recording: the default.
 - A presenter at a whiteboard, a shaky camera, a presenter beside the slides:
-  `--motion-max 4.5`. Add `--clean-board` for whiteboards (Step 7) - in board
-  mode most frames still have the presenter covering some writing.
+  `--motion-max 4.5`. Add `--clean-board` for whiteboards (Step 7); the
+  automatic board mode does that by itself.
 - Tablet drawing on a dark background (Khan Academy style): the default works
   (4 of 5 kept frames useful), but a drawing that builds up slowly keeps its early
   stage - add `--every 30` if the user wants the finished drawing.
@@ -237,16 +239,21 @@ does not mean the speaker is off topic** - handwritten equations read back as
 symbols. The verdict has not been measured against human labels; say so if you
 report it.
 
-**"The teacher is in the way / blocking the board":** add `--clean-board`.
-Copies go to `OUTDIR/clean/` with a moving presenter removed (each pixel's
-most common colour over the next 40 seconds). It revealed hidden writing on
-8 of 8 test frames. Tell the user its limits when you show results: a smudge
-where the presenter stood longest; writing from the next ~20 s can appear,
-sometimes half-written; anything erased in that time is gone. Compare with the
-original frame in `frames/` before relying on a detail.
+**"The teacher is in the way / blocking the board":** when the tool picks board
+mode it already makes copies in `OUTDIR/clean/` with a moving presenter removed
+(each pixel's most common colour over the next 40 seconds); otherwise add
+`--clean-board`. **Read `OUTDIR/clean/clean.json` first:** each frame has
+`"use": "clean"` or `"original"`. A presenter who stands still leaves a blurry
+ghost, and those copies are marked `original` - show the user the frame in
+`frames/` for them, not the clean copy. Measured on labelled frames: a teacher
+who walks around 5/11 useful originals -> 11/11 clean; one who stands in front
+talking 23/24 originals vs 16/24 clean, and the tool's choice 22/24. The check
+was tuned on those two lectures. Tell the user the limits when you show
+results: a smudge where the presenter stood longest; writing from the next
+~20 s can appear, sometimes half-written; anything erased in that time is gone.
 
 ```bash
-uv run python -m ytconv "URL" -o OUTDIR --motion-max 4.5 --mark --clean-board
+uv run python -m ytconv "URL" -o OUTDIR --mark --clean-board
 ```
 
 ## Optional - listen (experimental)
@@ -282,6 +289,7 @@ Report what you hear with timestamps, and say how sure you are.
 - `--stt-engine faster-whisper|whisper.cpp` - pick the engine.
 - `--at MM:SS` - the frame for a transcript moment (Step 6). Repeatable.
 - `--mark`, `--clean-board` - boxed / presenter-free copies (Step 7).
+  `--clean-board` is automatic in board mode; `--no-clean-board` skips it.
 - `--max-same N` - at most N frames of one slide or board (default 2; 0 keeps
   every repeat). On by default; `repeats.json` lists what was dropped. Needs
   OCR (built in on a Mac); without it the tool says so and keeps everything.
@@ -382,6 +390,6 @@ Re-run with `--debug-scores` and read `scores.csv`. The usual causes, in order:
 | `frame-scores.json` | a score for every second - search this, never re-scan |
 | `at.json` | with `--at`: the frame, the text read off it, whether it matched |
 | `marked/`, `marked.json` | with `--mark` |
-| `clean/` | with `--clean-board` |
+| `clean/`, `clean/clean.json` | board mode or `--clean-board`; `clean.json` says which copies are clean |
 | `repeats.json` | slides or boards that were in more than 2 frames, and which 2 were kept |
 | `notes.html`, `notes.md` | with `--notes` (Step 5b) |

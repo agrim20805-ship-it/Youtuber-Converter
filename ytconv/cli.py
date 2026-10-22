@@ -2,6 +2,7 @@
 
 import argparse
 import json
+import os
 import re
 import shutil
 import sys
@@ -58,7 +59,10 @@ def build_parser():
                         "the on-screen lines the speaker is talking about")
     p.add_argument("--clean-board", action="store_true",
                    help="also save copies of the frames in clean/ with a presenter who "
-                        "stands in front of a whiteboard removed (uses the next 40 s)")
+                        "stands in front of a whiteboard removed (uses the next 40 s). "
+                        "On automatically when the tool picks board mode")
+    p.add_argument("--no-clean-board", action="store_true",
+                   help="board mode: do not make the presenter-removed copies")
     p.add_argument("--client", default=None,
                    help="force a single yt-dlp player client instead of the fallback chain")
     p.add_argument("--lang", default=None, metavar="CODE",
@@ -207,6 +211,11 @@ def main(argv=None):
             args.gameplay = picked == "gameplay"
             args.motion_max = (frames.BOARD_MOTION_MAX if picked == "board"
                                else frames.MOTION_MAX)
+            if picked == "board" and not args.clean_board and not args.no_clean_board:
+                # the presenter covers the writing in most board frames
+                args.clean_board = True
+                print("[frames] board mode: also saving copies with the presenter "
+                      "removed in clean/ (--no-clean-board skips this)", flush=True)
         elif args.motion_max is None:
             args.motion_max = frames.MOTION_MAX
         if args.max_frames is None:   # picker: grows with length; other modes: 35
@@ -258,6 +267,7 @@ def main(argv=None):
                                          width=args.frame_width)
             print(f"[clean] wrote {len(cleaned)} frames to clean/ - a smudge can remain where "
                   f"the presenter stood longest", flush=True)
+            _judge_clean(video, wanted, len(scanned), out)
 
         if args.mark:
             _mark(args, [f["second"] for f in chosen] + at_seconds, out)
@@ -278,6 +288,25 @@ def main(argv=None):
         if temp_work and work.exists():
             # shutil, not `rm -rf` - the shell form is sometimes blocked.
             shutil.rmtree(work, ignore_errors=True)
+
+
+def _judge_clean(video, seconds, duration, out):
+    """clean/clean.json: which clean copies are clean, and which keep a ghost of a
+    presenter who hardly moved. The notes page shows only the clean ones."""
+    from concurrent.futures import ThreadPoolExecutor
+    with ThreadPoolExecutor(max_workers=min(8, os.cpu_count() or 2)) as pool:
+        ghosts = list(pool.map(lambda sec: frames.ghost_share(video, sec, duration), seconds))
+    rows = []
+    for sec, g in zip(seconds, ghosts):
+        rows.append({"second": sec, "frame": f"frame_{frames.seconds_to_stamp(sec)}.jpg",
+                     "ghost_share": round(g, 3),
+                     "use": "clean" if g <= frames.GHOST_MAX else "original"})
+    (out / "clean" / "clean.json").write_text(json.dumps(
+        {"rule": f"use the clean copy when ghost_share <= {frames.GHOST_MAX}", "frames": rows},
+        indent=1))
+    good = sum(r["use"] == "clean" for r in rows)
+    print(f"[clean] {good} of {len(rows)} copies look clean; the rest keep a ghost of the "
+          f"presenter, so the notes page uses the original there (clean/clean.json)", flush=True)
 
 
 def _slug(source, is_local):

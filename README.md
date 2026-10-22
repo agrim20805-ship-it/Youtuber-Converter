@@ -179,7 +179,7 @@ Output lands in `output/<video_id>/`:
 | `frame-scores.json` | the score for every second, so later stages can search instead of re-scanning |
 | `at.json` | with `--at`: the frame picked for each moment and the text read off it |
 | `marked/`, `marked.json` | with `--mark`: frames with boxes around what is being talked about |
-| `clean/` | with `--clean-board`: frames with the presenter removed from the whiteboard |
+| `clean/` | board mode (or `--clean-board`): frames with the presenter removed from the whiteboard; `clean.json` says which copies came out clean |
 | `repeats.json` | slides or boards that showed up in more than 2 frames, and which 2 were kept |
 | `notes.html`, `notes.md` | with `--notes`: a study page, the transcript by section with the frames beside it |
 
@@ -220,6 +220,9 @@ browser) and `notes.md` (for Obsidian or any Markdown app).
 - Every timestamp is a link that opens the YouTube video at that second.
 - A "Summary" line under each section, left for you - or Claude, with the
   skill - to fill in.
+- On a whiteboard video, the copy with the presenter removed
+  ([below](#reading-the-screen---mark-and---clean-board)) wherever it came out
+  clean, with a link to the original.
 
 The page loads nothing from the internet; the frames sit in the `frames/`
 folder beside it, so keep the two together.
@@ -348,14 +351,28 @@ talking about it - `no match` does not prove they're off topic.
 **`--clean-board`** saves a copy of each frame in `clean/` with a presenter who
 stands in front of a whiteboard removed. For every pixel it keeps the colour it
 has for most of the next 40 seconds: the writing stays put, a person who moves
-around disappears. On 8 frames where a teacher was blocking the board (two
-lectures), all 8 had the hidden writing readable afterwards. Limits: a smudge
-stays where the presenter stood longest; writing added in the next ~20 seconds
-can appear, sometimes half-written; anything erased in that time vanishes.
-About 0.7 seconds per frame. The original frames are never changed.
+around disappears. **It is on automatically when the tool picks board mode**
+(`--no-clean-board` turns that off). The original frames are never changed.
+
+It only works when the presenter moves. One who stands still talking to the
+camera stays in the picture as a blurry ghost. So the tool also checks each
+copy: if much of the picture never settles during those 40 seconds, the copy
+is marked as keeping a ghost in `clean/clean.json`, and the notes page shows
+the original instead. Measured on frames a person labelled both ways:
+
+| Lecture | Originals useful | Clean copies useful | What the tool shows, useful |
+|---|---|---|---|
+| Whiteboard, teacher walks around | 5 of 11 | 11 of 11 | 11 of 11 |
+| Hindi, teacher mostly stands in front | 23 of 24 | 16 of 24 | 22 of 24 |
+
+The ghost check was tuned on these same two lectures, so treat it as a first
+version. Other limits: a smudge stays where the presenter stood longest;
+writing added in the next ~20 seconds can appear, sometimes half-written;
+anything erased in that time vanishes. It adds about 20 seconds to a
+12-minute lecture.
 
 ```bash
-uv run python -m ytconv "URL" --motion-max 4.5 --mark --clean-board
+uv run python -m ytconv "URL" --mark --clean-board
 ```
 
 ## Useful flags
@@ -363,7 +380,8 @@ uv run python -m ytconv "URL" --motion-max 4.5 --mark --clean-board
 - `--no-frames` - transcript only, skips the video download entirely
 - `--at MM:SS` - the frame for a moment in the transcript (repeatable)
 - `--mark` - copies of the frames with boxes around what is being talked about
-- `--clean-board` - copies of the frames with the presenter removed from the whiteboard
+- `--clean-board` - copies of the frames with the presenter removed from the whiteboard (automatic in board mode)
+- `--no-clean-board` - board mode: skip those copies
 - `--lang hi` - the language the video is spoken in, if YouTube has it wrong
 - `--translate [LANG]` - also write the transcript in English (or LANG)
 - `--stt` - use speech-to-text even if captions exist
@@ -436,10 +454,14 @@ one of three ways to choose frames. It prints what it picked and why:
 
 - **default** - the picture holds perfectly still at times (slides, a screen
   recording, tablet drawing). Moving seconds are dropped: in a lecture,
-  movement is almost always the presenter.
+  movement is almost always the presenter. The exception is a slide with a
+  small moving bubble of the presenter beside it: when the movement covers at
+  most 40% of the picture and the rest is plain light slide background, the
+  frame is kept (a still frame of the same slide still wins).
 - **board** - something is always moving, but the picture stays put (a
   presenter at a whiteboard). The same rules, letting more movement through
-  (`--motion-max 4.5`).
+  (`--motion-max 4.5`), plus copies with the presenter removed
+  ([details](#reading-the-screen---mark-and---clean-board)).
 - **gameplay** - the picture jumps around, or the clip is under 90 seconds
   (games, sport, Shorts). The moving moments are the point, so it keeps the
   sharpest ones.
@@ -474,7 +496,7 @@ and the tool says so.
 Measured on real lectures in different styles - light slides, a dark screen
 recording, a whiteboard, tablet drawing, Hindi speech over English writing,
 voice-over slides, a code screencast - plus a gameplay Short. A person looked at
-**353 frames** and marked each useful in notes or not, and marked **45 moments**
+**360 frames** (plus 44 presenter-removed copies) and marked each useful in notes or not, and marked **45 moments**
 where a visual first appears after it is spoken. Full tables:
 [tests/RESULTS.md](tests/RESULTS.md). Re-run them yourself with the scripts in
 `tests/` (they download the test videos; nothing is stored in the repo but the
@@ -486,17 +508,22 @@ useful moments (from an even sample) that some kept frame shows.
 
 | Video style | Mode it picked | Useful | Shown |
 |---|---|---|---|
-| Light slides | default | 89% | 47% |
+| Light slides | default | 89% | 65% |
 | Dark screen recording (16 min) | default | 67% | 90% |
 | Whiteboard with presenter | board | 38% | 75% |
 | Tablet drawing (Khan Academy style) | default | 4 of 5 | 100% |
 | Hindi lecture, presenter at a board | board | 86% | too few samples to say |
 | Gameplay Short | gameplay | 2 of 5 | 3 of 5 |
-| **All six** | | **72%** | **71%** |
+| **All six** | | **73%** | **76%** |
 
 Before 2026-10-22 the tool used the default mode on everything unless told
 otherwise: 60% useful and 56% shown. On the whiteboard it kept no useful
-frames, and on the Hindi lecture it kept one.
+frames, and on the Hindi lecture it kept one. On the light slides, keeping
+slides that have a presenter bubble beside them raised "shown" from 47% to 65%.
+
+The whiteboard's 38% is for the original frames. With the presenter removed,
+which board mode now does by itself, 11 of the 11 labelled ones were useful -
+see [Reading the screen](#reading-the-screen---mark-and---clean-board).
 
 The bigger frame budget on long videos is a trade-off: on the 16-minute screen
 recording, frames show 90% of the useful moments instead of 80%, but 67% of
@@ -525,13 +552,11 @@ text.
   repeats. On the test video, notation added after 4:39 was missed. Add
   `--every 30` for the later stages. (Until 2026-10-21 these videos kept no
   frames at all; the dark-background check is now relative to the video.)
-- A presenter standing in front of the board: board mode keeps the board,
-  but in most of its frames the presenter hides some of the writing (38%
-  useful on the whiteboard test). `--clean-board` helps.
-- Slides with something always moving on them - a presenter's video bubble in
-  a corner, text over moving footage, a scrolling page - never hold still, so
-  they are dropped as footage. That is 7 of the 10 useful slide moments the
-  light-slides test misses.
+- A presenter who stands still in front of the board: removing them leaves a
+  ghost, so the tool shows the original, where they hide some writing.
+- Slides that never hold still and are not a light slide beside a small
+  bubble - dark slides with a bubble, text over moving video, a scrolling page -
+  are still dropped as footage.
 - A teacher who writes slowly: the visual can land 12-60 seconds after it is
   said, and no `--at` rule tested catches that.
 - `--mark`'s `on-slide` / `no match` verdict has not been measured against

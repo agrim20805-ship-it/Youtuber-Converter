@@ -227,7 +227,7 @@ class Handler(BaseHTTPRequestHandler):
         if self.path == "/api/state":
             labels = {f"{v}:{s}": l for (v, s), l in load_labels().items()}
             return self._send(200, json.dumps({"items": load_queue(), "labels": labels}).encode(), "application/json")
-        m = re.fullmatch(r"/img/([a-z]+)/(\d+)\.jpg", self.path)
+        m = re.fullmatch(r"/img/([a-z]+(?:-[a-z]+)?)/(\d+)\.jpg", self.path)
         if m and m.group(1) in KEYS:   # only known keys and digits: no path tricks
             f = TESTDATA / m.group(1) / "label" / f"{int(m.group(2))}.jpg"
             if f.exists():
