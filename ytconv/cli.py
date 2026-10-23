@@ -9,7 +9,7 @@ import sys
 import tempfile
 from pathlib import Path
 
-from . import fetch, frames, mark, match, ocr, repeats, stt, transcript
+from . import fetch, frames, mark, match, ocr, repeats, research, stt, transcript
 
 LANG_RE = re.compile(r"[A-Za-z]{2,3}(-[A-Za-z0-9]{2,8})?")
 
@@ -19,7 +19,18 @@ def build_parser():
         prog="ytconv",
         description="Turn a video into a clean transcript and the frames that carry information.",
     )
-    p.add_argument("source", help="YouTube URL, or a path to a local video file")
+    p.add_argument("source", nargs="?", default=None,
+                   help="YouTube URL, or a path to a local video file "
+                        "(not needed with --search or --research-page)")
+    p.add_argument("--search", default=None, metavar="TOPIC",
+                   help="research mode: search YouTube for TOPIC and list the results with "
+                        "channel, length, views and captions (writes search.json)")
+    p.add_argument("--results", type=int, default=None, metavar="N",
+                   help="with --search: how many results to list "
+                        "(default 10, at most 25)")
+    p.add_argument("--research-page", default=None, metavar="DIR",
+                   help="research mode: turn DIR/research.md into research.html and check "
+                        "its timestamp citations against DIR/videos/<id>/")
     p.add_argument("-o", "--out", default=None,
                    help="output directory for the transcript and frames (default: ./output/<id>)")
     p.add_argument("--work-dir", default=None,
@@ -107,6 +118,20 @@ def _missing_tools(is_local, no_frames):
 def main(argv=None):
     _console_safe()
     args = build_parser().parse_args(argv)
+    modes = [m for m, v in (("a video", args.source), ("--search", args.search),
+                            ("--research-page", args.research_page)) if v is not None]
+    if len(modes) != 1:
+        print("Give exactly one of: a video URL or file, --search \"topic\", or "
+              "--research-page DIR" + (f" (got {' and '.join(modes)})." if modes else "."),
+              file=sys.stderr)
+        return 2
+    if args.results is not None and args.search is None:
+        print("--results only works with --search.", file=sys.stderr)
+        return 2
+    if args.research_page is not None:
+        return _research_page(args.research_page)
+    if args.search is not None:
+        return _search(args)
     if args.source.startswith("-"):
         # yt-dlp would read it as one of its own options (--exec runs commands).
         print("The source must be a URL or a file path, not something starting "
@@ -307,6 +332,44 @@ def _judge_clean(video, seconds, duration, out):
     good = sum(r["use"] == "clean" for r in rows)
     print(f"[clean] {good} of {len(rows)} copies look clean; the rest keep a ghost of the "
           f"presenter, so the notes page uses the original there (clean/clean.json)", flush=True)
+
+
+def _search(args):
+    results = research.DEFAULT_RESULTS if args.results is None else args.results
+    if not 1 <= results <= research.MAX_RESULTS:
+        print(f"--results needs a number from 1 to {research.MAX_RESULTS}.", file=sys.stderr)
+        return 2
+    if not args.search.strip():
+        print("--search needs a topic to search for.", file=sys.stderr)
+        return 2
+    if not shutil.which("yt-dlp"):
+        print("Missing program: yt-dlp. Install it and make sure it is on your PATH; "
+              "see the README, Requirements.", file=sys.stderr)
+        return 2
+    slug = re.sub(r"[^a-z0-9]+", "-", args.search.lower()).strip("-")[:40] or "topic"
+    out = Path(args.out) if args.out else Path("output") / f"research-{slug}"
+    try:
+        rows = research.search(args.search, results, out)
+    except fetch.FetchError as e:
+        print(f"[search] failed: {e}", file=sys.stderr)
+        return 1
+    if not rows:
+        print("[search] no results.", file=sys.stderr)
+        return 1
+    print(f"\nNext: convert the videos you pick, each into {out / 'videos' / '<id>'}, e.g.\n"
+          f"  ytconv \"{rows[0]['url']}\" --no-frames -o \"{out / 'videos' / rows[0]['id']}\"",
+          flush=True)
+    return 0
+
+
+def _research_page(folder):
+    folder = Path(folder)
+    if not (folder / "research.md").is_file():
+        print(f"No research.md in {folder}. Write the note first (the /youtube-converter "
+              "skill does this in research mode).", file=sys.stderr)
+        return 2
+    research.build_page(folder)
+    return 0
 
 
 def _slug(source, is_local):

@@ -3,8 +3,8 @@
 Run it on your own Mac (not in the cloud - YouTube often blocks cloud servers,
 so a cloud check would mostly report false failures):
 
-    uv run python tests/healthcheck.py            # full: ~45 s, downloads ~9 MB
-    uv run python tests/healthcheck.py --quick    # captions only: ~4 s
+    uv run python tests/healthcheck.py            # full: ~1 min, downloads ~9 MB
+    uv run python tests/healthcheck.py --quick    # captions + search: ~15 s
 
 It runs the real tool (`python -m ytconv`) on two known videos and compares
 the results with answers measured on 2026-10-22. Prints PASS/FAIL per check
@@ -39,7 +39,12 @@ VIDEO_MIN_HEIGHT = 720        # the most this video offers
 VIDEO_SECONDS = 436           # 7:16 - frame-scores.json has one row per second
 VIDEO_SECONDS_TOL = 5
 
+# Check 2: research mode's search. Any popular topic works; results change daily.
+SEARCH_QUERY = "supply and demand"
+SEARCH_MIN_RESULTS = 5
+
 TIMEOUT_CAPTIONS = 120
+TIMEOUT_SEARCH = 90
 TIMEOUT_VIDEO = 420
 
 results = []   # (name, ok, detail)
@@ -106,9 +111,36 @@ def check_captions(tmp):
     report(name, ok, detail)
 
 
+def check_search(tmp):
+    name = "2. search (research mode)"
+    out = tmp / "search"
+    cmd = ["uv", "run", "python", "-m", "ytconv", "--search", SEARCH_QUERY, "-o", str(out)]
+    try:
+        p = subprocess.run(cmd, cwd=ROOT, capture_output=True, text=True, timeout=TIMEOUT_SEARCH)
+        code, log = p.returncode, (p.stdout or "") + (p.stderr or "")
+    except subprocess.TimeoutExpired:
+        code, log = None, ""
+    except FileNotFoundError:
+        code, log = None, "`uv` was not found on PATH."
+    path = out / "search.json"
+    if code != 0 or not path.exists():
+        why = "timed out" if code is None else f"tool exited with code {code}"
+        return report(name, False, f"{why}; no search.json.\nlast output:\n{tail(log)}")
+    try:
+        rows = json.loads(path.read_text()).get("results", [])
+    except ValueError:
+        return report(name, False, "search.json is not valid JSON.")
+    complete = [r for r in rows if r.get("id") and r.get("duration")]
+    checked = [r for r in rows if r.get("captions") not in (None, "?")]
+    ok = len(complete) >= SEARCH_MIN_RESULTS and len(checked) >= SEARCH_MIN_RESULTS
+    report(name, ok,
+           f"{len(rows)} results, {len(complete)} with id and length, {len(checked)} with captions "
+           f"looked up (expected at least {SEARCH_MIN_RESULTS} of each)")
+
+
 def check_video_and_frames(tmp):
-    n2 = "2. video download + resolution"
-    n3 = "3. frames kept + frame-scores.json"
+    n2 = "3. video download + resolution"
+    n3 = "4. frames kept + frame-scores.json"
     out, work = tmp / "video-out", tmp / "video-work"
     code, log = run_tool(VIDEO_URL, out, ["--keep-video", "--work-dir", str(work)], TIMEOUT_VIDEO)
     client = None
@@ -160,7 +192,8 @@ def check_video_and_frames(tmp):
 
 def main():
     ap = argparse.ArgumentParser(description="Check that ytconv still works against YouTube.")
-    ap.add_argument("--quick", action="store_true", help="captions check only (~4 s, no video download)")
+    ap.add_argument("--quick", action="store_true",
+                    help="captions and search checks only (~15 s, no video download)")
     args = ap.parse_args()
 
     start = time.time()
@@ -172,6 +205,7 @@ def main():
     with tempfile.TemporaryDirectory(prefix="ytconv-health-") as d:
         tmp = Path(d)
         check_captions(tmp)
+        check_search(tmp)
         if not args.quick:
             check_video_and_frames(tmp)
 

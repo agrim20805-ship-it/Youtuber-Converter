@@ -4,7 +4,7 @@ build-backend = "uv_build"
 
 [project]
 name = "ytconv"
-version = "0.1.1"
+version = "0.1.2"
 description = "Turn a video into a clean transcript and the frames that carry information."
 readme = "README.md"
 license = "MIT"

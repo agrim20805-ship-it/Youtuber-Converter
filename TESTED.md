@@ -15,7 +15,7 @@ For a quick check on your own computer, use the
 | Machine | Mac, Apple M4 Pro, macOS 27 |
 | Tools | ffmpeg 8.1.2, yt-dlp 2026.07.04 (Homebrew, with Deno), uv 0.12.1 |
 | Python | 3.9.6 (the Mac's built-in one), 3.12, 3.13, 3.14 |
-| ytconv | 0.1.1. The ears fix and the Python 3.9 change were re-tested on 0.1.1; the rest ran on the commit just before it, whose tool code is the same. |
+| ytconv | 0.1.1. The ears fix and the Python 3.9 change were re-tested on 0.1.1; the rest ran on the commit just before it, whose tool code is the same. Research mode was added and tested in 0.1.2 (rows below say so). |
 
 Videos used:
 
@@ -47,7 +47,11 @@ Videos used:
 | Reading the screen | `--mark --clean-board` on Board | ✅ 16 of 16 presenter-removed copies judged clean, `marked/` written |
 | How many frames | `--max-frames 60 --threshold 0.3` on Tablet | ✅ 720p (the best this video has). Run at the same time as other downloads of the same video, YouTube refused some with "403 Forbidden" and the tool fell back to 360p; run on its own, no problem. |
 | How it picks frames | `--gameplay` on Short | ✅ 5 frames |
-| Health check | `uv run python tests/healthcheck.py` | ✅ 3 of 3 passed, 72 s |
+| Research mode (0.1.2) | `--search "how do black holes form" -o DIR` | ✅ 10 results in about 8 s, captions filled in for each, `search.json` written. Same on the Mac's built-in Python 3.9. |
+| Research mode (0.1.2) | `--search` with no topic, with a URL as well, `--results 0`, `--results 99` | ✅ each stops with a clear message, exit code 2. A topic starting with `-` is searched as text. |
+| Research mode (0.1.2) | the whole flow through the Claude Code skill: 3 videos converted, `research.md` written, then `--research-page DIR` | ✅ 50 of 50 citations passed the check; 5 of them also checked by hand against the transcript. Page opened in a browser: 3 frames load, every timestamp link opens the video at that second. |
+| Research mode (0.1.2) | `--research-page` on a hand-made note with planted mistakes | ✅ flagged a wrong time, a time past the end, a video that was not converted and a claim with no matching words; a `javascript:` link was not made clickable; `<script>` was shown as text. |
+| Health check | `uv run python tests/healthcheck.py` | ✅ 3 of 3 passed, 72 s (0.1.1). 0.1.2 adds a search check: ✅ 4 of 4 passed, 49 s. |
 | Claude Code skill | `git clone …` → `cd` → `uv sync` → `mkdir -p ~/.claude/skills` → `ln -s …` | ✅ with a stand-in home folder: the link opened `SKILL.md`, and the skill's "find the project" step found the clone. Not tested: a real Claude Code session using it from that install. |
 | Claude Desktop (MCP) | the `uvx --from ytconv …` config | ✅ ran the same messages Claude Desktop sends: Board converted with notes, 16 frames. Not tested inside the Claude Desktop app. |
 | Claude Desktop (MCP) | the `uv --directory /path/to/clone …` config | ✅ same test, transcript only |

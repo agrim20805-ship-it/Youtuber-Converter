@@ -23,6 +23,7 @@ frame next to what was being said ([notes page](#notes-page)).
 [Without uv (pip)](#without-uv-pip) ·
 [As a `ytconv` command](#install-it-as-a-ytconv-command) · [Use](#use) ·
 [Your own video files](#your-own-video-files) · [Notes page](#notes-page) ·
+[Research mode](#research-mode) ·
 [No captions - free speech-to-text](#any-video-even-without-captions---free) ·
 [Languages and translation](#languages-and-translation) ·
 [The timestamp gap](#the-timestamp-gap) ·
@@ -240,6 +241,55 @@ browser) and `notes.md` (for Obsidian or any Markdown app).
 The page loads nothing from the internet; the frames sit in the `frames/`
 folder beside it, so keep the two together.
 
+## Research mode
+
+Give a topic instead of a video. With the [Claude Code skill](#use-it-with-claude-code),
+say "research how black holes form": Claude searches YouTube, picks the best
+three videos, reads them, and writes one note that compares them, with every
+claim linked to the exact second it was said.
+
+Two commands do the parts a program can check; Claude does the reading and writing.
+
+**1. Search.** About 8 seconds for 10 results:
+
+```bash
+uv run python -m ytconv --search "how do black holes form" -o research/black-holes
+```
+
+```
+ #  channel                      length   views  captions  uploaded   title
+ 1  Kurzgesagt – In a Nutshe ✓    05:56   29.6M  human en  2015-12-15 Black Holes Explained – From Birth to Death
+ 2  National Geographic ✓         03:11   12.5M  human en  2018-09-20 Black Holes 101 | National Geographic
+ 3  Peekaboo Kidz ✓               03:24    8.2M  human en  2016-09-23 BLACK HOLE | The Dr. Binocs Show | ...
+ 4  But Why? ✓                    12:56  841.2K  auto en   2022-12-06 When Do Black Holes Form?
+```
+
+It also saves `search.json`. It ranks nothing itself - picking is left to
+Claude (or you), by what each video is actually about. `--results 20` asks
+for more (up to 25).
+
+**2. Build the page and check the citations.** Claude converts each chosen
+video into `research/black-holes/videos/<id>/`, writes `research.md`, then runs:
+
+```bash
+uv run python -m ytconv --research-page research/black-holes
+```
+
+```
+[research] 50 timestamp citations across 3 converted videos: 50 ok, 0 to look at
+```
+
+It writes `research.html` and checks every YouTube link that has a time in it:
+the video must be one that was converted, the time must be inside the video,
+and what was said within 30 seconds of it must share words with the sentence
+that cites it. Anything that fails is listed in `research-check.json` for
+Claude to fix. The check catches wrong times and mixed-up videos; it cannot
+prove a sentence is a fair summary, so the links are there for you to click.
+
+The note has a short answer, a table of the sources and why each was chosen, a
+section per sub-topic, where the videos agree, where they differ, what none of
+them covered, and a few frames.
+
 ## Any video, even without captions - free
 
 **It's free, and it runs on your own computer.** No account, no API key, nothing
@@ -400,6 +450,8 @@ uv run python -m ytconv "URL" --mark --clean-board
 - `--stt` - use speech-to-text even if captions exist
 - `--no-stt` - for a video file: don't transcribe it, frames only
 - `--notes` - also write the notes page (`notes.html`, `notes.md`)
+- `--search "topic"` - research mode: search YouTube instead of converting (`--results N`, default 10)
+- `--research-page DIR` - research mode: turn `DIR/research.md` into `research.html` and check its citations
 - `--debug-scores` - also write `scores.csv` to see why each second was kept or dropped
 - `--threshold 0.3` - loosen frame selection if too little is coming through
 - `--max-frames 50` - cap on frames kept (default 35, or one per 20 seconds on long videos)
@@ -586,8 +638,9 @@ uv run python tests/healthcheck.py
 
 It runs the real tool on two known videos and compares the results with
 answers measured on 2026-10-22: the transcript of a 24-minute lecture, a video
-download, and its frames. It takes about 45 seconds and downloads about 9 MB;
-`--quick` checks captions only, in about 5 seconds. Each check prints PASS or
+download, and its frames, plus a YouTube search for research mode. It takes
+about a minute and downloads about 9 MB; `--quick` checks captions and search
+only, in about 15 seconds. Each check prints PASS or
 FAIL. If one fails, the usual fix is updating yt-dlp (`brew upgrade yt-dlp`).
 Run it on your own computer: YouTube often blocks cloud servers, so a check
 there mostly fails for the wrong reason.
@@ -718,6 +771,7 @@ any of them - tell Claude what you want in plain English and it runs the right
 commands for you. For example:
 
 - "Convert this video: https://www.youtube.com/watch?v=..."
+- "Research how black holes form." / "What do YouTube videos say about inflation?"
 - "Just get me the transcript of this one."
 - "Make me a notes page from this lecture."
 - "Convert lecture.mp4 on my Desktop."
