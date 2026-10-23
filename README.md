@@ -498,7 +498,7 @@ recording, a whiteboard, tablet drawing, Hindi speech over English writing,
 voice-over slides, a code screencast - plus a gameplay Short. A person looked at
 **360 frames** (plus 44 presenter-removed copies) and marked each useful in notes or not, and marked **45 moments**
 where a visual first appears after it is spoken. Full tables:
-[tests/RESULTS.md](tests/RESULTS.md). Re-run them yourself with the scripts in
+[tests/RESULTS.md](https://github.com/agrim20805-ship-it/Youtuber-Converter/blob/main/tests/RESULTS.md). Re-run them yourself with the scripts in
 `tests/` (they download the test videos; nothing is stored in the repo but the
 labels).
 
@@ -677,7 +677,7 @@ python3 detect.py audio.webm 30
 
 The second command lists moments in the first 30 seconds where a sudden low or
 high sound appears. To draw the timeline picture and for the other tools, see
-[experiments/ears/README.md](experiments/ears/README.md).
+[experiments/ears/README.md](https://github.com/agrim20805-ship-it/Youtuber-Converter/blob/main/experiments/ears/README.md).
 
 ## Or just ask Claude
 
