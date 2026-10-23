@@ -134,23 +134,30 @@ is what lets the tool find the yt-dlp you installed.
 
 ### Install it as a `ytconv` command
 
-ytconv is not on PyPI yet, so `pip install ytconv` does not work. You can build
-the package yourself and install it into any Python 3.13 (or newer)
-environment. Then the command is just `ytconv`. From the project folder:
+ytconv is on [PyPI](https://pypi.org/project/ytconv/), so you don't need to
+download this repo. It needs Python 3.13 or newer:
 
 ```bash
-uv build
-```
-
-```bash
-pip install dist/ytconv-0.1.0-py3-none-any.whl
+pip install ytconv
 ```
 
 ```bash
 ytconv "https://www.youtube.com/watch?v=VIDEO_ID" --notes
 ```
 
+With uv, `uvx ytconv "URL"` runs it without installing anything permanently.
+
 yt-dlp and ffmpeg still need installing separately (see Requirements).
+
+From your own Python code, pass the same options as the command line, as a
+list:
+
+```python
+from ytconv.cli import main
+
+main(["https://www.youtube.com/watch?v=VIDEO_ID", "-o", "my_output", "--notes"])
+```
+
 Installed this way, the text reader's helper and the speech-to-text models go
 in your user cache folder (`~/Library/Caches/ytconv` on a Mac,
 `%LOCALAPPDATA%\ytconv` on Windows, `~/.cache/ytconv` on Linux); set
@@ -627,8 +634,22 @@ three tools: `convert_video` (a URL or video file, with the main options),
 `read_transcript` (a time span of a finished transcript) and `list_frames`. It
 needs no extra packages.
 
-In Claude Desktop, add this to its config file, with the full path to your
-cloned folder:
+In Claude Desktop, add this to its config file. It runs ytconv straight from
+PyPI, so nothing needs cloning (only `uv`, yt-dlp and ffmpeg installed):
+
+```json
+{
+  "mcpServers": {
+    "ytconv": {
+      "command": "uvx",
+      "args": ["--from", "ytconv", "python", "-m", "ytconv.mcp_server"]
+    }
+  }
+}
+```
+
+Or, to run it from a cloned copy of this repo instead, with the full path to
+your cloned folder:
 
 ```json
 {
@@ -642,12 +663,13 @@ cloned folder:
 }
 ```
 
-If the app cannot find `uv`, put its full path there instead (`which uv`
-prints it). Results go to a temporary folder unless you name one;
+If the app cannot find `uv` or `uvx`, put its full path there instead
+(`which uvx` prints it). Results go to a temporary folder unless you name one;
 `YTCONV_MCP_OUT_BASE` changes that default.
 
 Tested by sending it the same messages an MCP app sends: a YouTube transcript
-and a video-file conversion both worked. **Not yet tested inside Claude
+and a video-file conversion both worked, and on 2026-10-23 a full whiteboard
+lecture with notes through the PyPI version (`uvx` setup above). **Not yet tested inside Claude
 Desktop itself.**
 
 ## Experimental: ears
