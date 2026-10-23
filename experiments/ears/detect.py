@@ -1,5 +1,12 @@
 import subprocess, sys, json, statistics as st
 SRC, DUR = sys.argv[1], float(sys.argv[2])
+# Never analyse past the end: ffmpeg would stretch shorter audio across all the
+# columns and every time would come out too late.
+REAL = float(subprocess.run(["ffprobe","-v","error","-show_entries","format=duration",
+    "-of","csv=p=0",SRC], capture_output=True, text=True).stdout.strip() or DUR)
+if REAL < DUR:
+    print(f"  (audio is only {REAL:.2f}s - analysing that instead of {DUR:g}s)")
+    DUR = REAL
 COLS = int(DUR * 100)          # one column per 10ms
 ROWS = 256                     # 0..8 kHz, linear, ~31 Hz per row
 raw = subprocess.run(["ffmpeg","-v","error","-i",SRC,"-t",str(DUR),"-ac","1","-ar","16000",

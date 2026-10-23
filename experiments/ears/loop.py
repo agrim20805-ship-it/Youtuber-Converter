@@ -2,9 +2,19 @@
 What the song repeats cancels; what was added (or removed) is left over."""
 import subprocess, sys, statistics as st
 CPS, ROWS, BANDS = 50, 256, 64          # 50 columns/sec, 64 frequency bands
+def real_length(src):
+    out = subprocess.run(["ffprobe","-v","error","-show_entries","format=duration",
+        "-of","csv=p=0",src], capture_output=True, text=True).stdout.strip()
+    return float(out) if out else None
 def grid(src, dur):
+    # Analyse exactly dur seconds, never past the end: otherwise ffmpeg stretches
+    # or squeezes the audio to fit the columns and every time comes out wrong.
+    real = real_length(src)
+    if real is not None and real < dur:
+        print(f"  (audio is only {real:.2f}s - analysing that instead of {dur:g}s)")
+        dur = real
     cols = int(dur * CPS)
-    raw = subprocess.run(["ffmpeg","-v","error","-i",src,"-ac","1","-ar","16000","-lavfi",
+    raw = subprocess.run(["ffmpeg","-v","error","-i",src,"-t",str(dur),"-ac","1","-ar","16000","-lavfi",
         f"showspectrumpic=s={cols}x{ROWS}:legend=0:scale=log:fscale=lin:color=channel",
         "-f","rawvideo","-pix_fmt","gray","-"], capture_output=True).stdout
     g = []

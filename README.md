@@ -32,7 +32,8 @@ frame next to what was being said ([notes page](#notes-page)).
 [How it picks frames](#how-it-picks-frames) · [How well it works](#how-well-it-works) ·
 [Health check](#health-check) · [Claude Code skill](#use-it-with-claude-code) ·
 [Claude Desktop (MCP)](#use-it-from-claude-desktop-or-other-apps-mcp) · [Ears](#experimental-ears) ·
-[Just ask Claude](#or-just-ask-claude) · [Disclaimer](#disclaimer)
+[Just ask Claude](#or-just-ask-claude) · [Disclaimer](#disclaimer) ·
+[Every command, tested](https://github.com/agrim20805-ship-it/Youtuber-Converter/blob/main/TESTED.md)
 
 ## Requirements
 
@@ -99,9 +100,9 @@ and `ffmpeg`. Speech-to-text is an optional add-on, below.
 ### Without uv (pip)
 
 The tool itself is plain Python with nothing to install, so uv is only a
-convenience. With pip instead, you need **Python 3.10 or newer** (check with
-`python3 --version`; get it from [python.org](https://www.python.org/downloads/)
-if yours is older) and `ffmpeg` installed separately (`brew install ffmpeg` on
+convenience. With pip instead, you need **Python 3.9 or newer** (check with
+`python3 --version` - the one built into a Mac is 3.9, which works; get a newer
+one from [python.org](https://www.python.org/downloads/) if yours is older) and `ffmpeg` installed separately (`brew install ffmpeg` on
 a Mac, or [ffmpeg.org](https://ffmpeg.org/download.html)).
 
 From the project folder, once:
@@ -135,7 +136,7 @@ is what lets the tool find the yt-dlp you installed.
 ### Install it as a `ytconv` command
 
 ytconv is on [PyPI](https://pypi.org/project/ytconv/), so you don't need to
-download this repo. It needs Python 3.13 or newer:
+download this repo. It needs Python 3.9 or newer:
 
 ```bash
 pip install ytconv
@@ -144,6 +145,11 @@ pip install ytconv
 ```bash
 ytconv "https://www.youtube.com/watch?v=VIDEO_ID" --notes
 ```
+
+On a Mac with only its built-in Python, the commands are `pip3` instead of
+`pip`, and the `ytconv` command lands in a folder your terminal doesn't search
+(pip prints a warning saying which). `python3 -m ytconv "URL"` works either
+way.
 
 With uv, `uvx ytconv "URL"` runs it without installing anything permanently.
 
@@ -585,6 +591,9 @@ download, and its frames. It takes about 45 seconds and downloads about 9 MB;
 FAIL. If one fails, the usual fix is updating yt-dlp (`brew upgrade yt-dlp`).
 Run it on your own computer: YouTube often blocks cloud servers, so a check
 there mostly fails for the wrong reason.
+
+Every command in this README was also run by hand on a fresh copy, with the
+results in [TESTED.md](https://github.com/agrim20805-ship-it/Youtuber-Converter/blob/main/TESTED.md).
 
 ## Use it with Claude Code
 
