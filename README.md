@@ -691,13 +691,23 @@ instructions Claude follows, including running commands on your computer.
 ## Use it from Claude Desktop or other apps (MCP)
 
 ytconv includes an [MCP](https://modelcontextprotocol.io) server, so apps
-that support MCP - Claude Desktop, for example - can use it as a tool. It has
-three tools: `convert_video` (a URL or video file, with the main options),
-`read_transcript` (a time span of a finished transcript) and `list_frames`. It
-needs no extra packages.
+that support MCP - Claude Desktop, for example - can use it as a tool. It
+needs no extra packages. Its six tools:
 
-In Claude Desktop, add this to its config file. It runs ytconv straight from
-PyPI, so nothing needs cloning (only `uv`, yt-dlp and ffmpeg installed):
+| Tool | What it does |
+|---|---|
+| `convert_video` | a URL or video file, with every option the command has (frame mode, notes, `--at`, `--mark`, translation, speech-to-text, ...) |
+| `read_transcript` | a time span of a finished transcript |
+| `list_frames` | the frames that were kept, with their times |
+| `view_frames` | up to 4 frames sent to Claude as pictures, so it can see them without opening files |
+| `search_videos` | research mode: search YouTube for a topic |
+| `build_research_page` | research mode: Claude sends its note, the tool builds the page and checks every citation |
+
+Only the experimental [ears](#experimental-ears) are left out.
+
+**Claude Desktop:** go to **Settings → Developer → Edit Config** and add this
+to `claude_desktop_config.json`. It runs ytconv straight from PyPI, so nothing
+needs cloning (only `uv`, yt-dlp and ffmpeg installed):
 
 ```json
 {
@@ -709,6 +719,16 @@ PyPI, so nothing needs cloning (only `uv`, yt-dlp and ffmpeg installed):
   }
 }
 ```
+
+Then quit Claude Desktop completely (Cmd+Q on a Mac) and open it again. If it
+cannot find `uvx`, put its full path there instead (`which uvx` prints it).
+The server finds yt-dlp and ffmpeg in Homebrew's folder by itself (0.1.3 and
+later); on 0.1.2 and earlier, a Mac needs
+`"env": {"PATH": "/opt/homebrew/bin:/usr/bin:/bin"}` in the entry.
+
+The **Settings → Connectors → "Add custom connector"** box is the wrong place:
+it is for servers on the internet, with an `https://` address. ytconv runs on
+your own computer.
 
 Or, to run it from a cloned copy of this repo instead, with the full path to
 your cloned folder:
@@ -725,14 +745,14 @@ your cloned folder:
 }
 ```
 
-If the app cannot find `uv` or `uvx`, put its full path there instead
-(`which uvx` prints it). Results go to a temporary folder unless you name one;
+Results go to a temporary folder unless you name one;
 `YTCONV_MCP_OUT_BASE` changes that default.
 
-Tested by sending it the same messages an MCP app sends: a YouTube transcript
-and a video-file conversion both worked, and on 2026-10-23 a full whiteboard
-lecture with notes through the PyPI version (`uvx` setup above). **Not yet tested inside Claude
-Desktop itself.**
+Tested by sending it the same messages an MCP app sends, started with the
+short PATH Claude Desktop uses: every option reached the command, two frames
+came back as pictures, and a full research run (search, three videos, the
+note) passed 50 of 50 citations. See [TESTED.md](https://github.com/agrim20805-ship-it/Youtuber-Converter/blob/main/TESTED.md).
+**Not yet tested inside the Claude Desktop app itself.**
 
 ## Experimental: ears
 

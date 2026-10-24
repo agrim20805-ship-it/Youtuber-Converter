@@ -11,9 +11,17 @@ Messages are hand-parsed here instead of using the official `mcp` package so the
 project keeps its empty dependency list.
 
 Tools
-  convert_video    run the ytconv CLI on a URL or local file (can take minutes)
-  read_transcript  read a time span of a finished transcript
-  list_frames      list the frames of a finished conversion, with timestamps
+  convert_video        run the ytconv CLI on a URL or local file (can take minutes);
+                       every CLI option is an argument
+  read_transcript      read a time span of a finished transcript
+  list_frames          list the frames of a finished conversion, with timestamps
+  view_frames          return up to 4 frames as images (for apps that cannot open files)
+  search_videos        research mode: search YouTube for a topic, make a research folder
+  build_research_page  research mode: save the note's Markdown, build research.html,
+                       check every timestamp citation
+
+yt-dlp and ffmpeg are looked for in the usual install folders too (Homebrew,
+~/.local/bin), because apps such as Claude Desktop start servers with a short PATH.
 
 Settings (environment variables, all optional)
   YTCONV_MCP_OUT_BASE  folder for per-run output when no out_dir is given
@@ -27,9 +35,11 @@ Text from the video (titles, captions, on-screen text) is returned as data; the
 tool descriptions tell the model not to treat it as instructions.
 """
 
+import base64
 import json
 import os
 import re
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -39,7 +49,7 @@ from collections import deque
 from pathlib import Path
 
 SERVER_NAME = "ytconv"
-SERVER_VERSION = "0.1.2"
+SERVER_VERSION = "0.1.3"
 PROTOCOL_VERSION = "2025-06-18"
 SUPPORTED_VERSIONS = ("2025-06-18", "2025-03-26", "2024-11-05")
 
@@ -49,10 +59,25 @@ STAMP_RE = re.compile(r"\d{1,2}:\d{2}(:\d{2})?")
 LINE_RE = re.compile(r"^\[(\d+(?::\d+){1,2})\]")
 FRAME_RE = re.compile(r"^(frame_[0-9-]+\.jpg)\s+\[([0-9:]+)\]")
 
+VIDEO_ID_RE = re.compile(r"(?:[?&]v=|youtu\.be/|/shorts/|/live/|/embed/)([A-Za-z0-9_-]{11})(?![A-Za-z0-9_-])")
+CLIENT_RE = re.compile(r"[A-Za-z0-9_]{1,40}")
+FRAME_NAME_RE = re.compile(r"frame_[0-9]{2}(-[0-9]{2}){1,2}\.jpg")
+
 MAX_TRANSCRIPT_CHARS = 20000
 MAX_FRAMES_LISTED = 200
 LOG_TAIL_LINES = 12
 DEFAULT_TIMEOUT = 3600
+SEARCH_TIMEOUT = 180
+PAGE_TIMEOUT = 120
+MAX_SEARCH_RESULTS = 25
+MAX_TOPIC_CHARS = 200
+MAX_NOTE_BYTES = 200_000
+MAX_VIEW = 4
+VIEW_WIDTH = 1280
+STT_ENGINES = ("faster-whisper", "whisper.cpp")
+# Where yt-dlp and ffmpeg usually live when the app's PATH is short (Claude Desktop's is).
+EXTRA_PATH_DIRS = ("/opt/homebrew/bin", "/usr/local/bin", "~/.local/bin",
+                   "/home/linuxbrew/.linuxbrew/bin")
 
 _out_lock = threading.Lock()
 _running = {}          # request id -> subprocess.Popen, so a cancel can stop it
@@ -80,8 +105,11 @@ TOOLS = [
             "downloads the video and can take several minutes (a local file with "
             "speech-to-text takes roughly its length divided by 5). For just reading "
             "or summarising, set no_frames=true - it takes seconds and skips the video "
-            "download. Then call read_transcript / list_frames with the returned "
-            "out_dir." + DATA_NOTE),
+            "download. Then call read_transcript / list_frames / view_frames with the "
+            "returned out_dir. The tool picks the frame mode (slides, board, gameplay) "
+            "itself and says which in the log; leave gameplay, every and motion_max unset "
+            "unless it chose wrong. In research mode pass research_dir instead of out_dir."
+            + DATA_NOTE),
         "inputSchema": {
             "type": "object",
             "properties": {
@@ -104,7 +132,37 @@ TOOLS = [
                 "lang": {"type": "string",
                          "description": "The video's spoken language code (e.g. hi, es) when the detected one is wrong."},
                 "max_frames": {"type": "integer", "minimum": 1,
-                               "description": "Maximum frames to keep (default chosen by video length)."},
+                               "description": "Maximum frames to keep (default chosen by video length). Raise it when the user wants more frames or every slide."},
+                "max_same": {"type": "integer", "minimum": 0,
+                             "description": "At most this many frames of one slide or board (default 2; 0 keeps every repeat)."},
+                "gameplay": {"type": "boolean",
+                             "description": "Fast footage (games, sport, action): keep the sharpest moments instead of still ones. The tool normally picks the frame mode itself and says which in the log - only set this if it chose wrong."},
+                "every": {"type": "integer", "minimum": 1,
+                          "description": "No filtering: one frame every N seconds. For 'give me everything'. Cannot be combined with gameplay."},
+                "motion_max": {"type": "number", "exclusiveMinimum": 0,
+                               "description": "Stillness limit: 1.0 for slides, 4.5 for a presenter at a board or a shaky camera. Normally chosen automatically; giving it turns the automatic choice off."},
+                "threshold": {"type": "number", "minimum": 0, "maximum": 1,
+                              "description": "Frame score needed to keep a frame (default 0.5). Try 0.3 when too few frames come through, e.g. pencil or a dim whiteboard."},
+                "no_clean_board": {"type": "boolean",
+                                   "description": "Board mode makes presenter-removed copies by itself; set this to skip them."},
+                "frame_width": {"type": "integer", "minimum": 320,
+                                "description": "Save frames at this width instead of the source's (e.g. 1280 to save space)."},
+                "debug_scores": {"type": "boolean",
+                                 "description": "Also write scores.csv with the keep/drop reason for every second. Use when frames come back wrong."},
+                "stt": {"type": "boolean",
+                        "description": "Transcribe the audio with free local speech-to-text even if captions exist."},
+                "no_stt": {"type": "boolean",
+                           "description": "Local video file: do not transcribe the audio (frames only)."},
+                "stt_engine": {"type": "string", "enum": list(STT_ENGINES),
+                               "description": "Force one speech-to-text engine (default: whichever is installed)."},
+                "client": {"type": "string", "pattern": "^[A-Za-z0-9_]{1,40}$",
+                           "description": "Force one yt-dlp player client (e.g. web_embedded) instead of the fallback chain. Only when downloads keep failing."},
+                "keep_video": {"type": "boolean",
+                               "description": "Keep the downloaded video file instead of deleting it (it goes in work_dir, or a temp folder)."},
+                "work_dir": {"type": "string",
+                             "description": "Folder for the large video file. Optional."},
+                "research_dir": {"type": "string",
+                                 "description": "Research mode: the research_dir returned by search_videos. The results then go into research_dir/videos/<video id>, where build_research_page checks citations. Do not give out_dir as well."},
             },
             "required": ["source"],
             "additionalProperties": False,
@@ -144,6 +202,77 @@ TOOLS = [
             "additionalProperties": False,
         },
     },
+    {
+        "name": "view_frames",
+        "description": (
+            f"Show up to {MAX_VIEW} frames of a finished conversion as images, at most "
+            f"{VIEW_WIDTH} px wide. Use this to actually look at a frame (you cannot open "
+            "the file paths yourself). Pick frames from the transcript and list_frames "
+            "first - each image is expensive. Name a frame by file name "
+            "(frame_06-29.jpg) or by time (06:29 - the nearest kept frame is used). Prefix "
+            "clean/ or marked/ for the presenter-removed or boxed copies." + DATA_NOTE),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "out_dir": {"type": "string", "description": "The out_dir returned by convert_video (must exist)."},
+                "frames": {"type": "array", "minItems": 1, "maxItems": MAX_VIEW,
+                           "items": {"type": "string"},
+                           "description": "e.g. [\"frame_06-29.jpg\", \"12:40\", \"clean/frame_02-10.jpg\"]"},
+            },
+            "required": ["out_dir", "frames"],
+            "additionalProperties": False,
+        },
+    },
+    {
+        "name": "search_videos",
+        "description": (
+            "Research mode, step 1 - when the user gives a topic instead of a video "
+            "('research X', 'what do videos say about X', 'compare videos on X'). Searches "
+            "YouTube (about 10 s) and lists each result's channel, length, views, captions "
+            "and date. Makes a research folder and returns research_dir. Then: pick 3 videos "
+            "(the user's real question and level first; human captions > auto; 3 different "
+            "channels; no Shorts, compilations, live streams or videos over ~60 min unless "
+            "asked), tell the user the picks in one line each, convert each with "
+            "convert_video(source=<its url>, research_dir=<research_dir>, no_frames=true), "
+            "read the transcripts, and finish with build_research_page." + DATA_NOTE),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "topic": {"type": "string", "description": "What to search for, in the user's words."},
+                "results": {"type": "integer", "minimum": 1, "maximum": MAX_SEARCH_RESULTS,
+                            "description": "How many results to list (default 10)."},
+                "out_dir": {"type": "string",
+                            "description": "Folder for the research. Optional: by default a new folder under a temp location."},
+            },
+            "required": ["topic"],
+            "additionalProperties": False,
+        },
+    },
+    {
+        "name": "build_research_page",
+        "description": (
+            "Research mode, last step. Saves your note as research.md in research_dir, "
+            "builds research.html, and checks every timestamp citation against the "
+            "transcripts. The note must use these sections: '# <the question>', "
+            "'## Short answer' (3-5 cited sentences), '## Sources' (a table: Video | Channel "
+            "| Length | Why this one), one '## ' section per sub-topic, '## Where they agree', "
+            "'## Where they differ', '## What none of them covered', and optionally '## Frames' "
+            "with ![what it shows - Channel MM:SS](videos/ID/frames/frame_MM-SS.jpg). Rules: "
+            "every factual sentence cites at least one video as "
+            "[Channel MM:SS](https://www.youtube.com/watch?v=ID&t=Ns) with N in seconds, "
+            "copied from the transcript and never invented; cite the moment it is said; mark "
+            "anything from your own knowledge '(not from the videos)'. The reply lists every "
+            "citation that failed the check - fix each one and call again until none are left."),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "research_dir": {"type": "string", "description": "The research_dir returned by search_videos."},
+                "markdown": {"type": "string", "description": "The whole note, in Markdown."},
+            },
+            "required": ["research_dir", "markdown"],
+            "additionalProperties": False,
+        },
+    },
 ]
 
 
@@ -175,12 +304,12 @@ def _inside(path, parent):
         return False
 
 
-def _existing_dir(value):
+def _existing_dir(value, name="out_dir"):
     if not isinstance(value, str) or not value.strip():
-        raise ToolError("out_dir is required.")
+        raise ToolError(f"{name} is required.")
     path = Path(value).expanduser()
     if not path.is_dir():
-        raise ToolError(f"out_dir does not exist or is not a folder: {value}")
+        raise ToolError(f"{name} does not exist or is not a folder: {value}")
     return path.resolve()
 
 
@@ -291,22 +420,45 @@ def convert_video(args, request_id=None):
     cmd = [sys.executable, "-m", "ytconv", source]
 
     out_arg = _text_arg(args, "out_dir", str)
-    if out_arg:
+    research_arg = _text_arg(args, "research_dir", str)
+    if research_arg:
+        if out_arg:
+            raise ToolError("Give research_dir or out_dir, not both.")
+        if is_local:
+            raise ToolError("research_dir needs a YouTube URL: the note's citations link to YouTube.")
+        m = VIDEO_ID_RE.search(source)
+        if not m:
+            raise ToolError("Could not read the 11-character video id from this URL; research mode "
+                            "needs it. Use the url from search_videos.")
+        out = _research_dir(research_arg) / "videos" / m.group(1)
+    elif out_arg:
         out = Path(out_arg).expanduser().resolve()
         if out.exists() and not out.is_dir():
             raise ToolError(f"out_dir exists and is not a folder: {out}")
     else:
         stamp = time.strftime("%Y%m%d-%H%M%S")
         out = (_base_dir() / f"{_slug(source)}-{stamp}").resolve()
-    if out == PROJECT or _inside(out, PROJECT):
-        raise ToolError(f"out_dir must not be inside the ytconv project folder ({PROJECT}). "
-                        "Choose another folder, or leave it out for a temp folder.")
+    _outside_project(out, "out_dir")
     out.mkdir(parents=True, exist_ok=True)
     cmd += ["-o", str(out)]
 
+    # Options that only mean something when frames are made.
+    frame_opts = [k for k in ("at", "mark", "clean_board", "no_clean_board", "gameplay", "every",
+                              "motion_max", "threshold", "max_frames", "max_same", "frame_width",
+                              "debug_scores", "keep_video", "work_dir")
+                  if args.get(k) not in (None, False, [], "")]
+    if no_frames and frame_opts:
+        raise ToolError(f"{', '.join(frame_opts)} need frames; set no_frames to false or leave them out.")
     if no_frames:
         cmd.append("--no-frames")
-    for flag, key in (("--notes", "notes"), ("--mark", "mark"), ("--clean-board", "clean_board")):
+    for a, b in (("gameplay", "every"), ("stt", "no_stt"), ("clean_board", "no_clean_board")):
+        if args.get(a) not in (None, False) and args.get(b) not in (None, False):
+            raise ToolError(f"{a} and {b} cannot be used together; choose one.")
+
+    for flag, key in (("--notes", "notes"), ("--mark", "mark"), ("--clean-board", "clean_board"),
+                      ("--no-clean-board", "no_clean_board"), ("--gameplay", "gameplay"),
+                      ("--debug-scores", "debug_scores"), ("--stt", "stt"), ("--no-stt", "no_stt"),
+                      ("--keep-video", "keep_video")):
         if _bool_arg(args, key):
             cmd.append(flag)
     at = args.get("at") or []
@@ -315,25 +467,55 @@ def convert_video(args, request_id=None):
     for stamp in at:
         _to_seconds(stamp, "at")
         cmd += ["--at", stamp.strip()]
-    if at and no_frames:
-        raise ToolError("at needs frames; set no_frames to false.")
     translate = _lang_arg(args, "translate")
     if translate:
         cmd += ["--translate", translate]
     lang = _lang_arg(args, "lang")
     if lang:
         cmd += ["--lang", lang]
-    max_frames = args.get("max_frames")
-    if max_frames is not None:
-        if isinstance(max_frames, bool) or not isinstance(max_frames, int) or max_frames < 1:
-            raise ToolError("max_frames must be a whole number of at least 1.")
-        cmd += ["--max-frames", str(max_frames)]
+    for flag, key, kind, low in (("--max-frames", "max_frames", int, 1), ("--max-same", "max_same", int, 0),
+                                 ("--every", "every", int, 1), ("--frame-width", "frame_width", int, 320)):
+        value = _number_arg(args, key, kind, low)
+        if value is not None:
+            cmd += [flag, str(value)]
+    motion = _number_arg(args, "motion_max", float, 0, above=True)
+    if motion is not None:
+        cmd += ["--motion-max", str(motion)]
+    threshold = _number_arg(args, "threshold", float, 0, high=1)
+    if threshold is not None:
+        cmd += ["--threshold", str(threshold)]
+    engine = args.get("stt_engine")
+    if engine is not None:
+        if engine not in STT_ENGINES:
+            raise ToolError(f"stt_engine must be one of: {', '.join(STT_ENGINES)}.")
+        cmd += ["--stt-engine", engine]
+    client = args.get("client")
+    if client is not None:
+        if not isinstance(client, str) or not CLIENT_RE.fullmatch(client):
+            raise ToolError("client must be a yt-dlp player client name such as web_embedded.")
+        cmd += ["--client", client]
+    work = _text_arg(args, "work_dir", str)
+    if work:
+        work_path = Path(work).expanduser().resolve()
+        if work_path.exists() and not work_path.is_dir():
+            raise ToolError(f"work_dir exists and is not a folder: {work_path}")
+        _outside_project(work_path, "work_dir")
+        cmd += ["--work-dir", str(work_path)]
 
+    log_tail = _run_cli(cmd, request_id, _timeout(), f"Output folder: {out}")
+    return _summary(out, log_tail, is_local)
+
+
+def _timeout(default=DEFAULT_TIMEOUT):
     try:
-        timeout = float(os.environ.get("YTCONV_MCP_TIMEOUT", DEFAULT_TIMEOUT))
+        return float(os.environ.get("YTCONV_MCP_TIMEOUT", default))
     except ValueError:
-        timeout = DEFAULT_TIMEOUT
+        return default
 
+
+def _run_cli(cmd, request_id, timeout, where):
+    """Run the ytconv command with output captured. Returns the last log lines;
+    raises ToolError on failure, timeout or cancel."""
     log("running:", " ".join(cmd))
     tail = deque(maxlen=60)
     env = dict(os.environ, PYTHONUNBUFFERED="1")
@@ -365,15 +547,48 @@ def convert_video(args, request_id=None):
 
     if request_id in _cancelled:
         _cancelled.discard(request_id)
-        raise ToolError("The conversion was cancelled.")
+        raise ToolError("Cancelled.")
     log_tail = "\n".join(list(tail)[-LOG_TAIL_LINES:])
     if timed_out:
-        raise ToolError(f"Stopped after {timeout:.0f} s (YTCONV_MCP_TIMEOUT). Partial output may be in "
-                        f"{out}.\n\nLast log lines:\n{log_tail}")
+        raise ToolError(f"Stopped after {timeout:.0f} s. {where}\n\nLast log lines:\n{log_tail}")
     if proc.returncode != 0:
-        raise ToolError(f"ytconv failed (exit code {proc.returncode}). Output folder: {out}\n\n"
+        raise ToolError(f"ytconv failed (exit code {proc.returncode}). {where}\n\n"
                         f"Last log lines:\n{log_tail}")
-    return _summary(out, log_tail, is_local)
+    return log_tail
+
+
+def _outside_project(path, name):
+    if path == PROJECT or _inside(path, PROJECT):
+        raise ToolError(f"{name} must not be inside the ytconv project folder ({PROJECT}). "
+                        "Choose another folder, or leave it out for a temp folder.")
+
+
+def _number_arg(args, name, kind, low, high=None, above=False):
+    """A whole number (kind=int) or any number (kind=float) within limits, or None."""
+    value = args.get(name)
+    if value is None:
+        return None
+    ok_type = isinstance(value, int) if kind is int else isinstance(value, (int, float))
+    if isinstance(value, bool) or not ok_type:
+        raise ToolError(f"{name} must be a {'whole number' if kind is int else 'number'}.")
+    if (value <= low if above else value < low) or (high is not None and value > high):
+        limit = f"above {low}" if above else f"at least {low}"
+        raise ToolError(f"{name} must be {limit}" + (f" and at most {high}." if high is not None else "."))
+    return value
+
+
+def _research_dir(value):
+    """A folder made by search_videos (it holds search.json)."""
+    path = _existing_dir(value, "research_dir")
+    if not (path / "search.json").is_file():
+        raise ToolError(f"{path} has no search.json - use the research_dir returned by search_videos.")
+    _outside_project(path, "research_dir")
+    return path
+
+
+def _topic_slug(topic):
+    words = re.findall(r"[A-Za-z0-9]+", topic.lower())
+    return "-".join(words)[:40].strip("-") or "topic"
 
 
 def _summary(out, log_tail, is_local):
@@ -406,7 +621,8 @@ def _summary(out, log_tail, is_local):
             parts.append(f"  ... {len(frames) - len(shown)} more; use list_frames")
     else:
         parts.append("frames: 0")
-    for name in ("at.json", "notes.md", "notes.html", "marked.json", "repeats.json"):
+    for name in ("at.json", "notes.md", "notes.html", "marked.json", "repeats.json", "scores.csv",
+                 "clean/clean.json"):
         if (out / name).is_file():
             parts.append(f"{name}: {out / name}")
     for name in ("marked", "clean"):
@@ -477,8 +693,146 @@ def list_frames(args, request_id=None):
     return "\n".join(lines)
 
 
+def view_frames(args, request_id=None):
+    out = _existing_dir(args.get("out_dir"))
+    wanted = args.get("frames")
+    if not isinstance(wanted, list) or not wanted or not all(isinstance(w, str) for w in wanted):
+        raise ToolError(f"frames must be a list of 1 to {MAX_VIEW} frame names or times.")
+    if len(wanted) > MAX_VIEW:
+        raise ToolError(f"At most {MAX_VIEW} frames per call - each image is expensive. Pick the ones that matter.")
+    content = []
+    for item in wanted:
+        path, note = _find_frame(out, item.strip())
+        data = _shrink(path)
+        stamp = _stamp_from_name(path.name) or "?"
+        label = f"{path.parent.name}/{path.name}" if path.parent.name != "frames" else path.name
+        content.append({"type": "text", "text": f"{label} - video time {stamp}{note}"})
+        content.append({"type": "image", "data": base64.b64encode(data).decode("ascii"),
+                        "mimeType": "image/jpeg"})
+    return content
+
+
+def _find_frame(out, item):
+    """A frame name or time -> (path inside out/frames|clean|marked, note)."""
+    folder_name = "frames"
+    if "/" in item:
+        folder_name, item = item.split("/", 1)
+        if folder_name not in ("frames", "clean", "marked") or "/" in item:
+            raise ToolError(f"Only frames/, clean/ or marked/ may come before a frame name, got {folder_name!r}.")
+    folder = out / folder_name
+    if not folder.is_dir():
+        raise ToolError(f"No {folder_name}/ folder in {out}.")
+    if FRAME_NAME_RE.fullmatch(item):
+        path = folder / item
+        if not path.is_file():
+            raise ToolError(f"{folder_name}/{item} not found. Use list_frames to see what was kept.")
+        return path, ""
+    if STAMP_RE.fullmatch(item):
+        target = _to_seconds(item, "frame time")
+        best, gap = None, None
+        for p in folder.glob("frame_*.jpg"):
+            if not FRAME_NAME_RE.fullmatch(p.name):
+                continue
+            secs = _to_seconds(_stamp_from_name(p.name), "frame")
+            if gap is None or abs(secs - target) < gap:
+                best, gap = p, abs(secs - target)
+        if best is None:
+            raise ToolError(f"No frames in {folder_name}/.")
+        return best, ("" if gap == 0 else f" (nearest kept frame to {item}, {gap} s away)")
+    raise ToolError(f"{item!r} is not a frame name like frame_06-29.jpg or a time like 06:29.")
+
+
+def _shrink(path):
+    """The frame as JPEG bytes, at most VIEW_WIDTH wide (ffmpeg writes to stdout; no temp file)."""
+    try:
+        p = subprocess.run(
+            ["ffmpeg", "-v", "error", "-i", str(path), "-vf", f"scale='min({VIEW_WIDTH},iw)':-2",
+             "-frames:v", "1", "-q:v", "4", "-f", "image2pipe", "-vcodec", "mjpeg", "-"],
+            stdin=subprocess.DEVNULL, capture_output=True, timeout=60)
+    except FileNotFoundError:
+        raise ToolError("ffmpeg was not found, so the frame cannot be prepared.")
+    except subprocess.TimeoutExpired:
+        raise ToolError(f"ffmpeg took too long on {path.name}.")
+    if p.returncode != 0 or not p.stdout:
+        raise ToolError(f"ffmpeg could not read {path.name}: {p.stderr.decode('utf-8', 'replace')[:200]}")
+    return p.stdout
+
+
+def search_videos(args, request_id=None):
+    from . import research
+    topic = args.get("topic")
+    if not isinstance(topic, str) or not topic.strip():
+        raise ToolError("topic is required: what to search YouTube for.")
+    topic = " ".join(topic.split())
+    if len(topic) > MAX_TOPIC_CHARS:
+        raise ToolError(f"topic is too long (at most {MAX_TOPIC_CHARS} characters).")
+    results = _number_arg(args, "results", int, 1, high=MAX_SEARCH_RESULTS) or research.DEFAULT_RESULTS
+    out_arg = _text_arg(args, "out_dir", str)
+    if out_arg:
+        folder = Path(out_arg).expanduser().resolve()
+        if folder.exists() and not folder.is_dir():
+            raise ToolError(f"out_dir exists and is not a folder: {folder}")
+    else:
+        folder = (_base_dir() / f"research-{_topic_slug(topic)}-{time.strftime('%Y%m%d-%H%M%S')}").resolve()
+    _outside_project(folder, "out_dir")
+    folder.mkdir(parents=True, exist_ok=True)
+    # "--search=..." keeps a topic that starts with "-" from being read as an option.
+    cmd = [sys.executable, "-m", "ytconv", f"--search={topic}", "--results", str(results), "-o", str(folder)]
+    _run_cli(cmd, request_id, _timeout(SEARCH_TIMEOUT), f"Research folder: {folder}")
+    try:
+        rows = json.loads((folder / "search.json").read_text(encoding="utf-8")).get("results", [])
+    except (OSError, ValueError):
+        raise ToolError(f"The search ran but search.json in {folder} could not be read.")
+    lines = [f"research_dir: {folder}", f"{len(rows)} results for {topic!r}:", "", research._table(rows), "",
+             "url of each result (pass these to convert_video, never one built from a transcript):"]
+    lines += [f"  {r.get('rank')}. {r.get('url')}" for r in rows]
+    lines += ["", "Next: pick 3 (the user's real question and level first; human captions > auto > none; "
+              "3 different channels; skip Shorts, compilations, live streams and videos over ~60 min "
+              "unless asked). Tell the user each pick in one line, then for each call "
+              f"convert_video(source=<url>, research_dir=\"{folder}\", no_frames=true). "
+              "Read the transcripts, optionally get frames with convert_video(..., at=[MM:SS]), "
+              "then call build_research_page."]
+    return "\n".join(lines)
+
+
+def build_research_page(args, request_id=None):
+    folder = _research_dir(args.get("research_dir"))
+    md = args.get("markdown")
+    if not isinstance(md, str) or not md.strip():
+        raise ToolError("markdown is required: the whole note.")
+    if len(md.encode("utf-8")) > MAX_NOTE_BYTES:
+        raise ToolError(f"The note is too long (at most {MAX_NOTE_BYTES // 1000} KB).")
+    (folder / "research.md").write_text(md, encoding="utf-8")
+    cmd = [sys.executable, "-m", "ytconv", "--research-page", str(folder)]
+    _run_cli(cmd, request_id, _timeout(PAGE_TIMEOUT), f"Research folder: {folder}")
+    try:
+        result = json.loads((folder / "research-check.json").read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        raise ToolError(f"The page was built but research-check.json in {folder} could not be read.")
+    problems, uncited = result.get("problems", []), result.get("uncited", [])
+    lines = [f"research.html: {folder / 'research.html'}", f"research.md: {folder / 'research.md'}",
+             f"{result.get('citations', 0)} timestamp citations across {len(result.get('videos_found', []))} "
+             f"converted videos: {len(result.get('ok', []))} ok, {len(problems)} to fix."]
+    if problems:
+        lines.append("")
+        lines.append("Fix each of these (correct the time, cite the right video, or reword), then call again:")
+        for c in problems:
+            lines.append(f"  - [{c.get('label')}] video {c.get('video')} at {_hms(c.get('second', 0))}: "
+                         f"{c.get('problem')}. Claim: {c.get('claim')}")
+    if uncited:
+        lines.append("")
+        lines.append(f"{len(uncited)} paragraphs or bullets have no timestamp citation - cite them, or "
+                     "mark your own knowledge '(not from the videos)':")
+        for u in uncited[:20]:
+            lines.append(f"  - under {u.get('heading')!r}: {u.get('text')}")
+    if not problems and not uncited:
+        lines.append("Every citation passed. Tell the user where research.html is (open it in a browser).")
+    return "\n".join(lines)
+
+
 HANDLERS = {"convert_video": convert_video, "read_transcript": read_transcript,
-            "list_frames": list_frames}
+            "list_frames": list_frames, "view_frames": view_frames,
+            "search_videos": search_videos, "build_research_page": build_research_page}
 
 
 # --- JSON-RPC over stdio ----------------------------------------------------
@@ -514,13 +868,15 @@ def call_tool(request_id, params):
         reply_error(request_id, -32602, "arguments must be an object")
         return
     try:
-        text, is_error = handler(arguments, request_id), False
+        result, is_error = handler(arguments, request_id), False
     except ToolError as exc:
-        text, is_error = str(exc), True
+        result, is_error = str(exc), True
     except Exception as exc:   # a bug here must not kill the server
         log("tool crashed:", repr(exc))
-        text, is_error = f"Internal error in {name}: {exc!r}", True
-    reply(request_id, {"content": [{"type": "text", "text": text}], "isError": is_error})
+        result, is_error = f"Internal error in {name}: {exc!r}", True
+    # A handler returns plain text, or a list of content items (view_frames: text + images).
+    content = result if isinstance(result, list) else [{"type": "text", "text": result}]
+    reply(request_id, {"content": content, "isError": is_error})
 
 
 def handle(message):
@@ -564,7 +920,25 @@ def handle(message):
         reply_error(request_id, -32601, f"Method not found: {method}")
 
 
+def _widen_path():
+    """Add the usual install folders to PATH (only ones that exist and are missing).
+    Claude Desktop starts servers with a short PATH that leaves out Homebrew."""
+    have = os.environ.get("PATH", "").split(os.pathsep)
+    added = []
+    for d in EXTRA_PATH_DIRS:
+        d = os.path.expanduser(d)
+        if os.path.isdir(d) and d not in have:
+            added.append(d)
+    if added:
+        os.environ["PATH"] = os.pathsep.join([p for p in have if p] + added)
+        log("added to PATH:", ", ".join(added))
+    for tool in ("yt-dlp", "ffmpeg"):
+        if not shutil.which(tool):
+            log(f"warning: {tool} not found on PATH - conversions will fail until it is installed")
+
+
 def main():
+    _widen_path()
     log(f"{SERVER_NAME} {SERVER_VERSION} ready on stdio (project {PROJECT})")
     for raw in sys.stdin:
         raw = raw.strip()

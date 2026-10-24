@@ -54,6 +54,9 @@ make it a page" -> research mode (it always writes the page).
 
 Say in one line which add-ons you are using and why, then run them.
 
+If ytconv's MCP tools (`convert_video`, `search_videos`, ...) are also loaded, still run
+the command as this skill says: it has every option and writes files directly.
+
 ## Step 1 - Find the project folder
 
 The skill is installed as a link from `~/.claude/skills/youtube-converter` back

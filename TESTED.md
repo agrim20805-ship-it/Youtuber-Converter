@@ -55,6 +55,12 @@ Videos used:
 | Claude Code skill | `git clone …` → `cd` → `uv sync` → `mkdir -p ~/.claude/skills` → `ln -s …` | ✅ with a stand-in home folder: the link opened `SKILL.md`, and the skill's "find the project" step found the clone. Not tested: a real Claude Code session using it from that install. |
 | Claude Desktop (MCP) | the `uvx --from ytconv …` config | ✅ ran the same messages Claude Desktop sends: Board converted with notes, 16 frames. Not tested inside the Claude Desktop app. |
 | Claude Desktop (MCP) | the `uv --directory /path/to/clone …` config | ✅ same test, transcript only |
+| MCP (0.1.3) | the server started with Claude Desktop's short PATH (`/usr/bin:/bin`), nothing set in the config | ✅ found yt-dlp and ffmpeg in Homebrew's folder by itself. On 0.1.2 the same start failed with "Missing program(s): yt-dlp". |
+| MCP (0.1.3) | `convert_video` with every new option: `gameplay`, `every`, `max_same`, `threshold`, `debug_scores`, `frame_width`, `keep_video`, `work_dir`, `client`, `max_frames`, `stt`, `stt_engine`, `no_stt`, `no_clean_board`, plus `mark`, `notes`, `at`, `lang` | ✅ each reached the command (checked in the server's log of what it ran). Short with `gameplay`: 5 frames, the same as the command gives. |
+| MCP (0.1.3) | 15 bad requests: conflicting options, numbers out of range, folders inside the project, a made-up client name, path tricks in `view_frames` | ✅ each refused with a plain message |
+| MCP (0.1.3) | `view_frames` by name, by time, and from `marked/` | ✅ came back as pictures, at most 1280 px wide; a time with no frame gives the nearest one and says so |
+| MCP (0.1.3) | research: `search_videos` → 3 × `convert_video` with `research_dir` → `build_research_page` | ✅ 50 of 50 citations ok; a citation moved past the end of its video was listed to fix |
+| MCP (0.1.3) | the same checks on the Mac's built-in Python 3.9 | ✅ |
 | Ears | `yt-dlp … -f ba -o audio.webm "Short"` → `python3 detect.py audio.webm 30` | ❌ then ✅. On 0.1.0 the times were about 2.2× too late, because the audio (13.8 s) was shorter than the 30 s asked for. Fixed in 0.1.1: it now analyses only the real length. The built-in test (8 hidden sounds) still finds 8 of 8, with output identical to before. |
 
 ## Python versions
