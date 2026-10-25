@@ -102,7 +102,7 @@ every `uv run python -m ytconv` below as
 install one without asking - faster-whisper is about 180 MB of packages, and
 either engine downloads a 465 MB model on first use.
 
-**No uv?** The user may have set up with pip instead (README, "Without uv").
+**No uv?** The user may have set up with pip instead (`GUIDE.md`, "Without uv").
 Then `PROJECT/.venv` holds their yt-dlp, and every `uv run python -m ytconv ...`
 below becomes:
 
@@ -111,7 +111,7 @@ source .venv/bin/activate && python -m ytconv ...
 ```
 
 Activating matters: it is how the tool finds the pip-installed yt-dlp. If
-there is no uv and no `.venv`, point the user to the README's pip setup rather
+there is no uv and no `.venv`, point the user to the pip setup in `GUIDE.md` rather
 than installing anything.
 
 ## Step 3 - Transcript first
@@ -139,7 +139,7 @@ set up, and says so. If none is, it prints how to get one - tell the user it is
 free and runs on their computer, and ask before installing either:
 
 - `uv sync --extra whisper` (or `pip install faster-whisper`)
-- `brew install whisper-cpp` (Windows and Linux: see the README)
+- `brew install whisper-cpp` (Windows and Linux: see `GUIDE.md`)
 
 **A video file on the user's computer:** pass its path instead of the URL.
 A subtitle file beside it with the same name (`lecture.srt`, `lecture.vtt`,

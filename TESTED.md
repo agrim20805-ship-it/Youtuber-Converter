@@ -1,12 +1,12 @@
 # Every command, tested
 
-Every command in the [README](README.md) was run by hand on 2026-10-23, on a
+Every command in the [guide](GUIDE.md) (the full README) was run by hand on 2026-10-23, on a
 fresh `git clone` of this repo, with real videos in place of `VIDEO_ID` and
 `URL`. This page says what was run and what happened, including what failed
 and what was not tested.
 
 For a quick check on your own computer, use the
-[health check](README.md#health-check) instead: it runs in about a minute.
+[health check](GUIDE.md#health-check) instead: it runs in about a minute.
 
 ## Setup
 
@@ -29,7 +29,7 @@ Videos used:
 
 ## Results
 
-| README section | Command (placeholders filled in) | Result |
+| Guide section | Command (placeholders filled in) | Result |
 |---|---|---|
 | Requirements | `brew install yt-dlp ffmpeg uv` | Not run (it installs). yt-dlp and ffmpeg were already installed with Homebrew; Homebrew has a `uv` package. |
 | Requirements | `yt-dlp -v --simulate "…" \| grep …` | ✅ printed `yt_dlp_ejs-0.8.0` and `JS runtimes: deno-2.9.5` |
@@ -86,4 +86,4 @@ ytconv has no Python packages to install and uses nothing newer than Python
 - Whiteboard lectures other than the one in the test set.
 
 If something here no longer works for you, it is most likely YouTube changing
-something: run the [health check](README.md#health-check) and update yt-dlp.
+something: run the [health check](GUIDE.md#health-check) and update yt-dlp.
